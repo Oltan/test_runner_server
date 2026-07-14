@@ -5,17 +5,27 @@ Config yolu: CONFIG_PATH ortam değişkeni (varsayılan ./projects.yaml)
 """
 from __future__ import annotations
 
+import asyncio
+import json
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.responses import PlainTextResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from .auth import check_ws_token, require_token
 from .config import load_config
 from .db import Database
+from .healing import HealError
+from .healing.engine import HealBusy, HealEngine
 from .runner import RunAlreadyActive, RunManager
+
+
+class HealRequest(BaseModel):
+    scenario: str
+    mode: str = "auto"  # auto | a | b
 
 _WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
@@ -30,6 +40,7 @@ def create_app(config_path: str | None = None) -> FastAPI:
         app.state.config = config
         app.state.db = db
         app.state.manager = RunManager(config, db)
+        app.state.heal_engine = HealEngine(config, db)
         yield
         db.close()
 
@@ -86,8 +97,12 @@ def create_app(config_path: str | None = None) -> FastAPI:
             raise HTTPException(404, "Koşum bulunamadı")
         manager: RunManager = app.state.manager
         handle = manager.active.get(run_id)
+        project = app.state.config.project(run["project_id"])
         run["scenarios"] = app.state.db.get_scenarios(run_id)
         run["live_progress"] = handle.progress if handle else None
+        run["retry_run_id"] = app.state.db.find_retry_run(run_id)
+        run["agent_enabled"] = bool(project and project.agent)
+        run["heals"] = app.state.db.list_heals(run_id=run_id)
         return run
 
     @app.get("/api/runs/{run_id}/log", dependencies=[Depends(require_token)])
@@ -100,6 +115,73 @@ def create_app(config_path: str | None = None) -> FastAPI:
             raise HTTPException(404, "Log dosyası yok")
         return PlainTextResponse(log_path.read_text(encoding="utf-8",
                                                     errors="replace"))
+
+    # --- Healing (Faz 2) -------------------------------------------------------
+
+    @app.post("/api/runs/{run_id}/heal",
+              dependencies=[Depends(require_token)], status_code=201)
+    async def start_heal(run_id: str, body: HealRequest):
+        run = app.state.db.get_run(run_id)
+        if run is None:
+            raise HTTPException(404, "Koşum bulunamadı")
+        project = app.state.config.project(run["project_id"])
+        if project is None or project.agent is None:
+            raise HTTPException(
+                400, "Bu projede `agent` yapılandırması yok (projects.yaml).")
+        scenario_row = next(
+            (s for s in app.state.db.get_scenarios(run_id)
+             if s["scenario"] == body.scenario and s["status"] == "failed"),
+            None)
+        if scenario_row is None:
+            raise HTTPException(
+                404, f"Bu koşumda FAIL olmuş '{body.scenario}' senaryosu yok.")
+        if scenario_row.get("passed_on_retry"):
+            raise HTTPException(
+                409, "Bu senaryo retry'da geçti (flaky şüphesi) — kod "
+                     "düzeltmesi değil, kararlılık incelemesi gerekir.")
+        try:
+            heal_id = await app.state.heal_engine.start_heal(
+                project, run, scenario_row, body.mode)
+        except HealBusy:
+            raise HTTPException(
+                409, "Bu projede zaten aktif bir heal denemesi var.") from None
+        except HealError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"heal_id": heal_id}
+
+    @app.get("/api/heals", dependencies=[Depends(require_token)])
+    def list_heals(run: str | None = None, limit: int = 50):
+        return app.state.db.list_heals(run_id=run, limit=min(limit, 200))
+
+    @app.get("/api/heals/{heal_id}", dependencies=[Depends(require_token)])
+    def get_heal(heal_id: str):
+        heal = app.state.db.get_heal(heal_id)
+        if heal is None:
+            raise HTTPException(404, "Heal denemesi bulunamadı")
+        try:
+            heal["stages"] = json.loads(heal.pop("detail") or "[]")
+        except json.JSONDecodeError:
+            heal["stages"] = []
+        return heal
+
+    @app.post("/api/heals/{heal_id}/approve",
+              dependencies=[Depends(require_token)])
+    async def approve_heal(heal_id: str):
+        return await _resolve_heal(heal_id, approve=True)
+
+    @app.post("/api/heals/{heal_id}/reject",
+              dependencies=[Depends(require_token)])
+    async def reject_heal(heal_id: str):
+        return await _resolve_heal(heal_id, approve=False)
+
+    async def _resolve_heal(heal_id: str, approve: bool):
+        try:
+            return await asyncio.to_thread(
+                app.state.heal_engine.resolve, heal_id, approve)
+        except KeyError:
+            raise HTTPException(404, "Heal denemesi bulunamadı") from None
+        except HealError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     # --- WebSocket: canlı log + ilerleme -------------------------------------
 

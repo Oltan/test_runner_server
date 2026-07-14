@@ -35,6 +35,24 @@ CREATE TABLE IF NOT EXISTS scenario_results (
     passed_on_retry INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_scen_run ON scenario_results(run_id);
+
+CREATE TABLE IF NOT EXISTS heal_attempts (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    scenario TEXT NOT NULL,
+    failure_class TEXT,
+    mode TEXT,                         -- a|b
+    model TEXT,
+    status TEXT NOT NULL,              -- running|proposed|needs_human|approved|rejected|failed
+    branch TEXT,
+    worktree TEXT,
+    diff TEXT,
+    detail TEXT,                       -- JSON: aşama kayıtları
+    created_at TEXT NOT NULL,
+    finished_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_heal_run ON heal_attempts(run_id);
 """
 
 
@@ -58,12 +76,15 @@ class Database:
 
     # --- runs -------------------------------------------------------------
 
-    def create_run(self, run_id: str, project_id: str, log_file: str) -> None:
+    def create_run(self, run_id: str, project_id: str, log_file: str,
+                   is_retry: bool = False,
+                   parent_run_id: str | None = None) -> None:
         with self._lock:
             self._conn.execute(
-                "INSERT INTO runs (id, project_id, status, started_at, log_file)"
-                " VALUES (?, ?, 'running', ?, ?)",
-                (run_id, project_id, _utcnow(), log_file),
+                "INSERT INTO runs (id, project_id, status, started_at, log_file,"
+                " is_retry, parent_run_id) VALUES (?, ?, 'running', ?, ?, ?, ?)",
+                (run_id, project_id, _utcnow(), log_file,
+                 int(is_retry), parent_run_id),
             )
             self._conn.commit()
 
@@ -132,4 +153,87 @@ class Database:
                 " passed_on_retry FROM scenario_results WHERE run_id=?",
                 (run_id,),
             ).fetchall()
+        return [dict(r) for r in rows]
+
+    def mark_passed_on_retry(self, run_id: str, scenarios: list[str]) -> None:
+        """Retry koşumunda geçen senaryoları parent koşumda flaky işaretle."""
+        with self._lock:
+            self._conn.executemany(
+                "UPDATE scenario_results SET passed_on_retry=1"
+                " WHERE run_id=? AND scenario=?",
+                [(run_id, s) for s in scenarios],
+            )
+            self._conn.commit()
+
+    def find_retry_run(self, parent_run_id: str) -> str | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT id FROM runs WHERE parent_run_id=? ORDER BY started_at"
+                " DESC LIMIT 1", (parent_run_id,)
+            ).fetchone()
+        return row["id"] if row else None
+
+    def prune_runs(self, project_id: str, keep: int) -> list[dict]:
+        """Proje başına en yeni `keep` koşumu tut; silinenlerin id+log_file'ını
+        döndür (çağıran, log ve artefakt dosyalarını temizler)."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT id, log_file FROM runs WHERE project_id=? AND"
+                " status != 'running' ORDER BY started_at DESC, id DESC"
+                " LIMIT -1 OFFSET ?", (project_id, keep)
+            ).fetchall()
+            removed = [dict(r) for r in rows]
+            if removed:
+                ids = [r["id"] for r in removed]
+                marks = ",".join("?" * len(ids))
+                self._conn.execute(
+                    f"DELETE FROM scenario_results WHERE run_id IN ({marks})", ids)
+                self._conn.execute(
+                    f"DELETE FROM runs WHERE id IN ({marks})", ids)
+                self._conn.commit()
+        return removed
+
+    # --- heal_attempts --------------------------------------------------------
+
+    def create_heal(self, heal_id: str, run_id: str, project_id: str,
+                    scenario: str, failure_class: str, mode: str,
+                    model: str | None) -> None:
+        with self._lock:
+            self._conn.execute(
+                "INSERT INTO heal_attempts (id, run_id, project_id, scenario,"
+                " failure_class, mode, model, status, created_at)"
+                " VALUES (?, ?, ?, ?, ?, ?, ?, 'running', ?)",
+                (heal_id, run_id, project_id, scenario, failure_class,
+                 mode, model, _utcnow()),
+            )
+            self._conn.commit()
+
+    def update_heal(self, heal_id: str, **fields) -> None:
+        if not fields:
+            return
+        cols = ", ".join(f"{k}=?" for k in fields)
+        with self._lock:
+            self._conn.execute(
+                f"UPDATE heal_attempts SET {cols} WHERE id=?",
+                (*fields.values(), heal_id),
+            )
+            self._conn.commit()
+
+    def get_heal(self, heal_id: str) -> dict | None:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM heal_attempts WHERE id=?", (heal_id,)
+            ).fetchone()
+        return dict(row) if row else None
+
+    def list_heals(self, run_id: str | None = None, limit: int = 50) -> list[dict]:
+        query = ("SELECT id, run_id, project_id, scenario, failure_class, mode,"
+                 " model, status, branch, created_at, finished_at FROM heal_attempts")
+        params: tuple = ()
+        if run_id:
+            query += " WHERE run_id=?"
+            params = (run_id,)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        with self._lock:
+            rows = self._conn.execute(query, params + (limit,)).fetchall()
         return [dict(r) for r in rows]

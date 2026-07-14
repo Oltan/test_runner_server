@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AI Düzeltme — Test Runner</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1><a href="/">🧪 Test Runner</a></h1>
+    <span class="sub">AI düzeltme denemesi</span>
+  </header>
+  <main>
+    <div class="runbar">
+      <span class="title" id="heal-title"></span>
+      <span id="heal-status"></span>
+      <span class="stat" id="heal-meta"></span>
+      <span style="flex:1"></span>
+      <span id="heal-actions" style="display:none">
+        <button id="approve-btn">✓ Onayla (branch'i tut)</button>
+        <button class="danger" id="reject-btn">✗ Reddet</button>
+      </span>
+    </div>
+
+    <section>
+      <h2>Aşamalar</h2>
+      <table>
+        <thead><tr><th style="width:200px">Aşama</th><th></th><th>Detay</th></tr></thead>
+        <tbody id="stages"></tbody>
+      </table>
+    </section>
+
+    <section id="diff-section" style="display:none">
+      <h2>Önerilen değişiklik (diff)</h2>
+      <div id="console" style="height:auto; max-height:520px"><span id="diff"></span></div>
+    </section>
+
+    <div id="result-banner" class="banner" style="display:none"></div>
+  </main>
+  <script src="app.js"></script>
+  <script>initHealPage();</script>
+</body>
+</html>

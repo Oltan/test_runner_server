@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import shutil
 import signal
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -35,6 +36,8 @@ class RunHandle:
     subscribers: set[asyncio.Queue] = field(default_factory=set)
     progress: dict | None = None
     stop_requested: bool = False
+    is_retry: bool = False
+    parent_run_id: str | None = None
 
 
 class RunManager:
@@ -43,13 +46,24 @@ class RunManager:
         self.db = db
         self.logs_dir = Path(config.data_dir) / "logs"
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.artifacts_dir = Path(config.data_dir) / "artifacts"
+        self.artifacts_dir.mkdir(parents=True, exist_ok=True)
         self.active: dict[str, RunHandle] = {}
         self._by_project: dict[str, str] = {}
+
+    def _prune_old_runs(self, project_id: str) -> None:
+        for removed in self.db.prune_runs(project_id, self.config.keep_runs):
+            if removed.get("log_file"):
+                Path(removed["log_file"]).unlink(missing_ok=True)
+            shutil.rmtree(self.artifacts_dir / removed["id"], ignore_errors=True)
 
     def active_run_for(self, project_id: str) -> str | None:
         return self._by_project.get(project_id)
 
-    async def start_run(self, project: ProjectConfig) -> str:
+    async def start_run(self, project: ProjectConfig, *,
+                        command_override: str | None = None,
+                        is_retry: bool = False,
+                        parent_run_id: str | None = None) -> str:
         if project.id in self._by_project:
             raise RunAlreadyActive(self._by_project[project.id])
 
@@ -62,13 +76,18 @@ class RunManager:
             # Önceki koşumdan kalan dosya canlı sayacı bozmasın
             ndjson_path = cwd / project.live_progress.cucumber_ndjson
             ndjson_path.unlink(missing_ok=True)
+        if not is_retry:
+            # Önceki koşumun hata artefaktları yenisine karışmasın
+            # (retry aynı koşumun devamı sayılır, dokunma)
+            shutil.rmtree(cwd / project.results.failure_artifacts_dir,
+                          ignore_errors=True)
 
         started = datetime.now()  # subprocess'ten ÖNCE: rapor mtime eşiği
         run_id = f"{project.id}-{started:%Y%m%d-%H%M%S}-{uuid4().hex[:6]}"
         log_path = self.logs_dir / f"{run_id}.log"
 
         process = await asyncio.create_subprocess_shell(
-            project.command,
+            command_override or project.command,
             cwd=str(cwd),
             env={**os.environ, **project.env},
             stdout=asyncio.subprocess.PIPE,
@@ -81,10 +100,12 @@ class RunManager:
             run_id=run_id, project=project, process=process,
             log_path=log_path, started_at=started,
             started_epoch=started.timestamp(),
+            is_retry=is_retry, parent_run_id=parent_run_id,
         )
         self.active[run_id] = handle
         self._by_project[project.id] = run_id
-        self.db.create_run(run_id, project.id, str(log_path))
+        self.db.create_run(run_id, project.id, str(log_path),
+                           is_retry=is_retry, parent_run_id=parent_run_id)
 
         asyncio.create_task(self._drive_run(handle, cwd, ndjson_path))
         return run_id
@@ -180,11 +201,53 @@ class RunManager:
             self.db.finish_run(handle.run_id, status, exit_code,
                                duration_s=duration_s)
 
+        # Retry koşumuysa: parent'ta FAIL olup şimdi geçenleri flaky işaretle
+        if handle.is_retry and handle.parent_run_id and stats is not None:
+            parent_failed = {s["scenario"]
+                             for s in self.db.get_scenarios(handle.parent_run_id)
+                             if s["status"] == "failed"}
+            now_passed = {s.scenario for s in stats.scenarios
+                          if s.status == "passed"}
+            flaky = sorted(parent_failed & now_passed)
+            if flaky:
+                self.db.mark_passed_on_retry(handle.parent_run_id, flaky)
+
+        # Hata artefaktlarını sakla (Faz 2 healing girdisi)
+        if status in ("failed", "error"):
+            src = cwd / project.results.failure_artifacts_dir
+            if src.is_dir():
+                try:
+                    shutil.copytree(src, self.artifacts_dir / handle.run_id,
+                                    dirs_exist_ok=True)
+                except OSError:
+                    pass
+
+        # Kayıttan düş — retry başlatmadan ÖNCE (aksi halde 409)
+        self.active.pop(handle.run_id, None)
+        if self._by_project.get(project.id) == handle.run_id:
+            self._by_project.pop(project.id, None)
+
+        # Otomatik retry: FAIL + retry tanımlı + rerun dosyası dolu + kendisi
+        # retry değil → sadece kalan senaryoları bir kez daha koş
+        retry_run_id = None
+        if (not handle.is_retry and status == "failed"
+                and project.retry is not None and project.retry.enabled):
+            rerun_path = cwd / project.retry.rerun_file
+            if rerun_path.is_file() and rerun_path.read_text(
+                    encoding="utf-8", errors="replace").strip():
+                try:
+                    retry_run_id = await self.start_run(
+                        project, command_override=project.retry.command,
+                        is_retry=True, parent_run_id=handle.run_id)
+                except (RunAlreadyActive, FileNotFoundError):
+                    pass
+
         finished_event = {
             "type": "finished",
             "status": status,
             "exit_code": exit_code,
             "duration_s": duration_s,
+            "retry_run_id": retry_run_id,
             "stats": {
                 "passed": stats.passed if stats else 0,
                 "failed": stats.failed if stats else 0,
@@ -196,9 +259,7 @@ class RunManager:
         for queue in list(handle.subscribers):
             queue.put_nowait(None)  # akış bitti işareti
 
-        self.active.pop(handle.run_id, None)
-        if self._by_project.get(project.id) == handle.run_id:
-            self._by_project.pop(project.id, None)
+        self._prune_old_runs(project.id)
 
     def _broadcast(self, handle: RunHandle, event: dict) -> None:
         for queue in list(handle.subscribers):

@@ -8,11 +8,13 @@ Cucumber ve JavaFX + TestFX projeleridir.
 
 ```
 Tarayıcı ──HTTP+WebSocket (token)──▶ FastAPI (VM)
-  ├── projects.yaml   proje tanımları (yol, komut, rapor yolları)
+  ├── projects.yaml   proje tanımları (yol, komut, rapor yolları, retry, agent)
   ├── Runner          subprocess: mvn test → canlı log akışı
   ├── Progress        Cucumber NDJSON tail → canlı geçme yüzdesi
   ├── Parsers         cucumber.json + surefire XML → kesin istatistik
-  └── SQLite          koşum geçmişi (runs + scenario_results)
+  ├── Retry           FAIL senaryoları bir kez tekrarla → flaky ayrımı
+  ├── Healing         LLM ile düzeltme önerisi (git worktree'de, insan onaylı)
+  └── SQLite          koşum geçmişi (runs + scenario_results + heal_attempts)
 ```
 
 ## Hızlı başlangıç (sahte projeyle deneme)
@@ -61,6 +63,58 @@ projects:
 
 Cucumber olmayan projelerde `live_progress`'i boş bırakın; canlı konsol yine
 çalışır, istatistik koşum sonunda `junit_xml_dir`'den gelir.
+
+## Retry ve flaky ayrımı (Faz 1.6)
+
+Projeye `retry` bölümü eklendiğinde, koşum FAIL ederse **sadece kalan
+senaryolar** bir kez daha koşulur (Cucumber `rerun:` plugin'inin ürettiği
+dosya üzerinden):
+
+```yaml
+    retry:
+      enabled: true
+      command: "mvn -B test -Dcucumber.features=@target/rerun.txt"
+      rerun_file: target/rerun.txt
+```
+
+- Retry'da **geçen** senaryo → arayüzde `flaky şüphesi` rozeti
+  (`passed_on_retry`). Bu senaryolar healing'e gönderilmez — sorun kodda
+  değil, kararlılıktadır.
+- Retry'da da **kalan** senaryo → deterministik hata, healing adayı.
+
+## AI ile düzeltme — healing (Faz 2)
+
+Deterministik FAIL eden senaryolar için koşum sayfasında **🩹 AI ile düzelt**
+düğmesi çıkar. Hata sınıfına göre iki mod:
+
+| | Mod A — locator kırılması | Mod B — assertion/akış hatası |
+|---|---|---|
+| Tetik | `NoSuchElementException`, `TimeoutException`… | `AssertionError`… |
+| Yöntem | Agent yok: DOM budanır, LLM'e **tek soru** sorulur, cevap deterministik patch'lenir | Coding agent (opencode) dar görevle çalışır |
+| Model | `agent.llm` (ör. Qwen3.6-32B) | `agent.agent_model` (ör. Qwen3.5-392B) |
+
+Her deneme **izole git worktree'de, kendi `heal/<id>` branch'inde** yapılır:
+
+```
+sınıflandır → worktree aç → düzelt (A: patch / B: agent) →
+[B: diff whitelist kontrolü — dışarı dokunduysa RED] →
+(compile) → senaryoyu yeniden koş → diff'i arayüzde göster →
+İNSAN ONAYI → branch kalır (merge/push size ait) | red → branch silinir
+```
+
+Güvenlik garantileri:
+- Canlı test koşumlarının kullandığı dizine asla dokunulmaz (worktree izolasyonu).
+- Mod A'da locator kodda birden çok yerde geçiyorsa otomatik patch yapılmaz
+  (`needs_human`).
+- Mod B'de agent `edit_whitelist` dışına dokunursa öneri otomatik reddedilir.
+- Hiçbir mod push/merge yapmaz; onaylanan düzeltme sadece branch olarak kalır.
+
+Gereksinimler: test projesi **git deposu** olmalı ve build çıktıları
+(`target/` vb.) `.gitignore`'da olmalı; hata artefaktları için
+`examples/java-templates/FailureArtifactHook.java` projeye eklenmiş olmalı.
+LLM tarafı OpenAI-uyumlu herhangi bir endpoint'tir (vLLM, Ollama…) —
+yapılandırma örneği `projects.yaml` içindeki yorumlu bloktadır. Agent
+prompt şablonları `agent/prompts/` altındadır, ihtiyaca göre düzenlenebilir.
 
 ## VM kurulumu
 
@@ -118,9 +172,13 @@ ekleyin. Aynı projede eşzamanlı ikinci koşum 409 ile reddedilir.
 | `POST /api/projects/{id}/run` | Koşum başlat → `{run_id}` (aktifse 409) |
 | `POST /api/runs/{id}/stop` | Koşumu durdur (process group SIGTERM→SIGKILL) |
 | `GET /api/runs?project=&limit=` | Koşum geçmişi |
-| `GET /api/runs/{id}` | Koşum detayı + senaryo sonuçları |
+| `GET /api/runs/{id}` | Koşum detayı + senaryolar + retry/heal bilgisi |
 | `GET /api/runs/{id}/log` | Tam konsol logu (düz metin) |
 | `WS /api/runs/{id}/stream?token=` | Canlı olaylar: `log`, `progress`, `finished` |
+| `POST /api/runs/{id}/heal` | Healing başlat `{scenario, mode}` → `{heal_id}` |
+| `GET /api/heals/{id}` | Heal durumu: aşamalar + diff |
+| `POST /api/heals/{id}/approve` | Onayla: `heal/<id>` branch'i repoda kalır |
+| `POST /api/heals/{id}/reject` | Reddet: branch + worktree silinir |
 
 Kimlik doğrulama: `X-Auth-Token` header'ı veya `?token=` parametresi.
 
@@ -139,11 +197,12 @@ python3 -m pytest tests/ -v
 
 ## Yol haritası
 
-- **Faz 1 (bu repo):** runner + web arayüzü + canlı ilerleme + koşum geçmişi ✅
-- **Faz 1.6:** başarısız senaryoları `rerun.txt` ile bir kez yeniden koşma,
-  retry'da geçenleri "flaky şüphesi" olarak işaretleme
-- **Faz 2:** LLM healing — hata sınıflandırma; locator kırılmalarında budanmış
-  DOM + tek LLM çağrısı + deterministik patch; karmaşık hatalarda opencode
-  (git worktree izolasyonu, diff whitelist, insan onaylı push).
-  `examples/java-templates/` bu fazın Java tarafı hazırlığıdır.
-- **Faz 3:** RAG + agent ile yeni test üretimi
+- **Faz 1:** runner + web arayüzü + canlı ilerleme + koşum geçmişi ✅
+- **Faz 1.6:** retry + flaky işaretleme ✅
+- **Faz 2 (sunucu tarafı):** LLM healing — Mod A (locator: budanmış DOM +
+  tek LLM çağrısı + deterministik patch) ve Mod B (opencode; worktree
+  izolasyonu + diff whitelist + insan onayı) ✅ — kullanıcı tarafında
+  kalanlar: `FailureArtifactHook`'un test projesine eklenmesi, vLLM/opencode
+  kurulumu ve `agent` yapılandırması
+- **Faz 3:** RAG + agent ile yeni test üretimi; Mod B'ye opsiyonel
+  Playwright MCP eskalasyonu

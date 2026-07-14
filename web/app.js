@@ -143,7 +143,8 @@ async function initRunPage() {
     if (run.live_progress) updateProgress(run.live_progress);
     if (run.status !== "running") {
       showFinal(run.status, { passed: run.passed, failed: run.failed,
-                              skipped: run.skipped, total: run.total });
+                              skipped: run.skipped, total: run.total },
+                run.retry_run_id);
     }
   } catch (e) {
     appendLine("[hata] " + e.message, "err");
@@ -167,7 +168,7 @@ function connectWs(runId) {
     } else if (ev.type === "progress") {
       updateProgress(ev);
     } else if (ev.type === "finished") {
-      showFinal(ev.status, ev.stats);
+      showFinal(ev.status, ev.stats, ev.retry_run_id);
     } else if (ev.type === "error") {
       appendLine("[hata] " + ev.error, "err");
     }
@@ -207,7 +208,7 @@ function setStatus(status) {
     status === "running" ? "" : "none";
 }
 
-function showFinal(status, stats) {
+function showFinal(status, stats, retryRunId) {
   setStatus(status);
   if (stats && stats.total) {
     updateProgress({ ...stats, done: stats.total });
@@ -218,6 +219,148 @@ function showFinal(status, stats) {
   } else {
     appendLine(`\n══ Koşum bitti: ${status.toUpperCase()} ══`,
       status === "passed" ? "ok" : "err");
+  }
+  if (retryRunId) {
+    const banner = document.getElementById("retry-banner");
+    banner.style.display = "";
+    banner.innerHTML = `↻ Kalan senaryolar için otomatik retry koşumu başladı
+      (flaky ayrımı için): <a href="run.html?id=${encodeURIComponent(retryRunId)}">
+      ${esc(retryRunId)}</a>`;
+  }
+  loadScenarios();
+}
+
+async function loadScenarios() {
+  const runId = new URLSearchParams(location.search).get("id");
+  let run;
+  try { run = await api(`/api/runs/${encodeURIComponent(runId)}`); }
+  catch (e) { return; }
+  if (!run.scenarios || !run.scenarios.length) return;
+
+  if (run.retry_run_id) {
+    const banner = document.getElementById("retry-banner");
+    banner.style.display = "";
+    banner.innerHTML = `↻ Bu koşumun retry koşumu:
+      <a href="run.html?id=${encodeURIComponent(run.retry_run_id)}">
+      ${esc(run.retry_run_id)}</a>`;
+  }
+
+  document.getElementById("scenarios-section").style.display = "";
+  const healByScenario = {};
+  (run.heals || []).forEach((h) => { healByScenario[h.scenario] = h; });
+
+  document.getElementById("scenarios").innerHTML = run.scenarios.map((s) => {
+    const flaky = s.passed_on_retry
+      ? ` <span class="badge flaky">flaky şüphesi</span>` : "";
+    let action = "";
+    const heal = healByScenario[s.scenario];
+    if (heal) {
+      action = `<a href="heal.html?id=${encodeURIComponent(heal.id)}">
+        <span class="badge ${heal.status}">heal: ${heal.status}</span></a>`;
+    } else if (s.status === "failed" && !s.passed_on_retry && run.agent_enabled) {
+      action = `<button class="heal-btn"
+        onclick="startHeal('${esc(s.scenario).replace(/'/g, "\\'")}')">
+        🩹 AI ile düzelt</button>`;
+    }
+    const err = s.error_message
+      ? `<span class="err-excerpt" title="${esc(s.error_message)}">
+           ${esc(s.error_message.split("\n")[0])}</span>` : "";
+    return `<tr>
+      <td class="muted">${esc(s.feature || "")}</td>
+      <td>${esc(s.scenario)}${err}</td>
+      <td>${badge(s.status)}${flaky}</td>
+      <td class="muted">${fmtDuration(s.duration_s)}</td>
+      <td>${action}</td>
+    </tr>`;
+  }).join("");
+}
+
+async function startHeal(scenario) {
+  const runId = new URLSearchParams(location.search).get("id");
+  try {
+    const { heal_id } = await api(`/api/runs/${encodeURIComponent(runId)}/heal`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scenario, mode: "auto" }),
+    });
+    location.href = `heal.html?id=${encodeURIComponent(heal_id)}`;
+  } catch (e) {
+    alert("Heal başlatılamadı: " + e.message);
+  }
+}
+
+/* ---------------- Heal sayfası (heal.html) ---------------- */
+
+async function initHealPage() {
+  getToken();
+  const healId = new URLSearchParams(location.search).get("id");
+  if (!healId) { location.href = "/"; return; }
+
+  document.getElementById("approve-btn").onclick = () => resolveHeal(healId, "approve");
+  document.getElementById("reject-btn").onclick = () => resolveHeal(healId, "reject");
+
+  await refreshHeal(healId);
+  const timer = setInterval(async () => {
+    const status = await refreshHeal(healId);
+    if (status !== "running") clearInterval(timer);
+  }, 2000);
+}
+
+async function refreshHeal(healId) {
+  let heal;
+  try { heal = await api(`/api/heals/${encodeURIComponent(healId)}`); }
+  catch (e) { return "error"; }
+
+  document.getElementById("heal-title").textContent =
+    `${heal.scenario} — Mod ${String(heal.mode || "").toUpperCase()}`;
+  document.getElementById("heal-status").innerHTML = badge(heal.status);
+  document.getElementById("heal-meta").innerHTML =
+    `sınıf: <b>${esc(heal.failure_class || "-")}</b>&nbsp; model:
+     <b>${esc(heal.model || "-")}</b>&nbsp; branch: <b>${esc(heal.branch || "-")}</b>`;
+
+  document.getElementById("stages").innerHTML = (heal.stages || []).map((s) => `
+    <tr>
+      <td>${esc(s.stage)}</td>
+      <td>${s.ok ? '<span class="ok">✓</span>' : '<span class="err">✗</span>'}</td>
+      <td class="muted" style="font-family:monospace; font-size:12.5px;
+          word-break:break-all">${esc(s.detail || "")}</td>
+    </tr>`).join("") ||
+    `<tr><td colspan="3" class="muted">Başlatılıyor…</td></tr>`;
+
+  if (heal.diff) {
+    document.getElementById("diff-section").style.display = "";
+    document.getElementById("diff").innerHTML = heal.diff.split("\n").map((l) => {
+      let cls = "";
+      if (l.startsWith("+") && !l.startsWith("+++")) cls = "diff-add";
+      else if (l.startsWith("-") && !l.startsWith("---")) cls = "diff-del";
+      else if (l.startsWith("@@")) cls = "diff-hunk";
+      return `<span class="${cls}">${esc(l)}</span>`;
+    }).join("\n");
+  }
+
+  document.getElementById("heal-actions").style.display =
+    heal.status === "proposed" ? "" : "none";
+
+  const banner = document.getElementById("result-banner");
+  if (heal.status === "approved") {
+    banner.style.display = "";
+    banner.innerHTML = `✓ Onaylandı — düzeltme <b>${esc(heal.branch)}</b>
+      branch'inde. Projede inceleyip merge/push edebilirsiniz.`;
+  } else if (heal.status === "needs_human") {
+    banner.style.display = "";
+    banner.textContent = "Bu hata otomatik patch için güvenli değil — " +
+      "aşama detayındaki gerekçeyle birlikte insan incelemesi gerekiyor.";
+  }
+  return heal.status;
+}
+
+async function resolveHeal(healId, action) {
+  try {
+    await api(`/api/heals/${encodeURIComponent(healId)}/${action}`,
+              { method: "POST" });
+    await refreshHeal(healId);
+  } catch (e) {
+    alert("İşlem başarısız: " + e.message);
   }
 }
 

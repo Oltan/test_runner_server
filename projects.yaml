@@ -3,6 +3,7 @@
 
 auth_token: "degistir-beni"
 data_dir: "data"
+keep_runs: 200          # proje başına saklanacak koşum (log + artefakt) sayısı
 
 projects:
   # Sunucuyu gerçek bir Java projesi olmadan uçtan uca denemek için sahte koşum.
@@ -11,12 +12,17 @@ projects:
     path: examples/fake-cucumber-sim
     command: "python3 run.py"
     env:
-      FAKE_FAILING: "1"      # kaç senaryo FAIL etsin
+      FAKE_FAILING: "1"      # deterministik FAIL sayısı
+      FAKE_FLAKY: "1"        # ilk koşumda FAIL, retry'da PASS
       FAKE_STEP_DELAY: "0.4" # adım başına saniye
     results:
       cucumber_json: target/cucumber-report.json
     live_progress:
       cucumber_ndjson: target/cucumber-messages.ndjson
+    retry:
+      enabled: true
+      command: "python3 run.py --rerun"
+      rerun_file: target/rerun.txt
 
   # Gerçek Selenium + Cucumber projesi örneği.
   # Cucumber runner'ınıza şu plugin'leri ekleyin (README'ye bakın):
@@ -25,7 +31,7 @@ projects:
   #             "rerun:target/rerun.txt"}
   # - id: web-otomasyon
   #   name: "Web Otomasyonu (Selenium + Cucumber)"
-  #   path: /opt/projects/web-otomasyon
+  #   path: /opt/projects/web-otomasyon      # git deposu olmalı (healing için)
   #   command: "mvn -B test"
   #   env:
   #     HEADLESS: "true"
@@ -34,6 +40,23 @@ projects:
   #     junit_xml_dir: target/surefire-reports
   #   live_progress:
   #     cucumber_ndjson: target/cucumber-messages.ndjson
+  #   retry:                                  # Faz 1.6: FAIL'leri bir kez tekrarla
+  #     enabled: true
+  #     command: "mvn -B test -Dcucumber.features=@target/rerun.txt"
+  #     rerun_file: target/rerun.txt
+  #   agent:                                  # Faz 2: LLM healing
+  #     llm:                                  # Mod A (locator) — tek çağrı
+  #       base_url: "http://vllm-sunucu:8000/v1"
+  #       model: "qwen3.6-32b"
+  #       api_key_env: "LLM_API_KEY"          # anahtar bu env değişkeninden okunur
+  #     agent_command: >-                     # Mod B (assertion/akış) — opencode
+  #       opencode run --model "$HEAL_MODEL" "$(cat "$HEAL_PROMPT_FILE")"
+  #     agent_model: "qwen3.5-392b"
+  #     scenario_command: mvn -B test -Dcucumber.filter.name="$HEAL_SCENARIO"
+  #     compile_command: "mvn -B test-compile -q"
+  #     edit_whitelist:
+  #       - src/test/java/pages/
+  #       - src/test/java/stepdefinitions/
 
   # JavaFX + TestFX projesi örneği (headless için xvfb-run).
   # - id: javafx-app

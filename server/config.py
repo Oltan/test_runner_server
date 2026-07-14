@@ -12,11 +12,44 @@ class ResultsConfig(BaseModel):
     # Koşum sonunda kesin istatistik için okunacak rapor yolları (proje dizinine göre göreli).
     cucumber_json: str | None = None
     junit_xml_dir: str | None = None
+    # FailureArtifactHook'un yazdığı dizin; FAIL koşumlardan sonra sunucuya kopyalanır.
+    failure_artifacts_dir: str = "target/failure-artifacts"
 
 
 class LiveProgressConfig(BaseModel):
     # Cucumber "message" plugin'inin yazdığı NDJSON dosyası; koşum sırasında tail edilir.
     cucumber_ndjson: str | None = None
+
+
+class RetryConfig(BaseModel):
+    """FAIL koşumdan sonra sadece kalan senaryoları bir kez yeniden koşma.
+
+    Retry'da geçen senaryolar healing'e gitmez, 'flaky şüphesi' olarak
+    işaretlenir (passed_on_retry). Cucumber tarafında `rerun:` plugin'i gerekir.
+    """
+    enabled: bool = True
+    command: str  # ör: mvn -B test -Dcucumber.features=@target/rerun.txt
+    rerun_file: str = "target/rerun.txt"
+
+
+class LLMConfig(BaseModel):
+    base_url: str            # OpenAI-uyumlu endpoint, ör: http://vllm:8000/v1
+    model: str
+    api_key_env: str | None = None  # anahtar bu ortam değişkeninden okunur
+
+
+class AgentConfig(BaseModel):
+    """Faz 2 healing ayarları (proje bazında)."""
+    llm: LLMConfig | None = None          # Mod A: tek çağrılık locator düzeltme
+    agent_command: str | None = None      # Mod B: coding agent komutu (opencode).
+    # Komut worktree içinde shell ile koşar; şu env değişkenlerini alır:
+    #   HEAL_PROMPT_FILE (görev tanımı), HEAL_MODEL, HEAL_SCENARIO
+    agent_model: str | None = None        # Mod B'ye HEAL_MODEL olarak geçer
+    scenario_command: str                 # tek senaryoyu koşma (env: HEAL_SCENARIO)
+    compile_command: str | None = None    # ör: mvn -B test-compile -q
+    edit_whitelist: list[str] = Field(
+        default_factory=lambda: ["src/test/java/"])
+    command_timeout_s: int = 3600
 
 
 class ProjectConfig(BaseModel):
@@ -27,11 +60,14 @@ class ProjectConfig(BaseModel):
     env: dict[str, str] = Field(default_factory=dict)
     results: ResultsConfig = Field(default_factory=ResultsConfig)
     live_progress: LiveProgressConfig = Field(default_factory=LiveProgressConfig)
+    retry: RetryConfig | None = None
+    agent: AgentConfig | None = None
 
 
 class ServerConfig(BaseModel):
     auth_token: str
     data_dir: str = "data"
+    keep_runs: int = 200  # proje başına saklanacak koşum sayısı (log + artefakt)
     projects: list[ProjectConfig] = Field(default_factory=list)
 
     def project(self, project_id: str) -> ProjectConfig | None:

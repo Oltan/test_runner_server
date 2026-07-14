@@ -30,7 +30,19 @@
       <div class="progress-label" id="progress-label">İlerleme bekleniyor…</div>
     </div>
 
+    <div id="retry-banner" class="banner" style="display:none"></div>
+
     <div id="console"></div>
+
+    <section id="scenarios-section" style="display:none; margin-top:24px">
+      <h2>Senaryolar</h2>
+      <table>
+        <thead>
+          <tr><th>Feature</th><th>Senaryo</th><th>Durum</th><th>Süre</th><th></th></tr>
+        </thead>
+        <tbody id="scenarios"></tbody>
+      </table>
+    </section>
   </main>
   <script src="app.js"></script>
   <script>initRunPage();</script>
