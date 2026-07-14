@@ -1,0 +1,68 @@
+[
+  {
+    "uri": "features/login.feature",
+    "name": "Giriş",
+    "elements": [
+      {
+        "type": "background",
+        "keyword": "Background",
+        "name": "ortak adımlar",
+        "steps": [
+          {"keyword": "Given ", "name": "uygulama açık",
+           "result": {"status": "passed", "duration": 100000000}}
+        ]
+      },
+      {
+        "type": "scenario",
+        "keyword": "Scenario",
+        "name": "Başarılı giriş",
+        "steps": [
+          {"keyword": "Given ", "name": "kullanıcı giriş sayfasında",
+           "result": {"status": "passed", "duration": 500000000}},
+          {"keyword": "When ", "name": "geçerli bilgilerle giriş yapar",
+           "result": {"status": "passed", "duration": 1500000000}}
+        ]
+      },
+      {
+        "type": "scenario",
+        "keyword": "Scenario",
+        "name": "Kilitli kullanıcı",
+        "steps": [
+          {"keyword": "Given ", "name": "kullanıcı giriş sayfasında",
+           "result": {"status": "passed", "duration": 500000000}},
+          {"keyword": "When ", "name": "kilitli hesapla giriş yapar",
+           "result": {"status": "failed", "duration": 2000000000,
+                      "error_message": "org.openqa.selenium.NoSuchElementException: Unable to locate element: //button[@id='submit-btn']"}},
+          {"keyword": "Then ", "name": "kilit uyarısı görünür",
+           "result": {"status": "skipped"}}
+        ]
+      }
+    ]
+  },
+  {
+    "uri": "features/cart.feature",
+    "name": "Sepet",
+    "elements": [
+      {
+        "type": "scenario",
+        "keyword": "Scenario",
+        "name": "Ürün sepete eklenir",
+        "steps": [
+          {"keyword": "Given ", "name": "kullanıcı giriş yapmış",
+           "result": {"status": "passed", "duration": 800000000}},
+          {"keyword": "When ", "name": "sepete ekler",
+           "result": {"status": "passed", "duration": 1200000000}}
+        ]
+      },
+      {
+        "type": "scenario",
+        "keyword": "Scenario",
+        "name": "Atlanan senaryo",
+        "steps": [
+          {"keyword": "Given ", "name": "hiç koşulmadı",
+           "result": {"status": "skipped"}}
+        ]
+      }
+    ]
+  }
+]

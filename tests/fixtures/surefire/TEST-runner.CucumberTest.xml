@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="runner.CucumberTest" tests="4" failures="1" errors="0" skipped="1" time="12.345">
+  <testcase name="Başarılı giriş" classname="Giriş" time="2.1"/>
+  <testcase name="Kilitli kullanıcı" classname="Giriş" time="4.2">
+    <failure message="Unable to locate element: //button[@id='submit-btn']" type="org.openqa.selenium.NoSuchElementException">stack trace burada</failure>
+  </testcase>
+  <testcase name="Ürün sepete eklenir" classname="Sepet" time="3.0"/>
+  <testcase name="Atlanan senaryo" classname="Sepet" time="0.0">
+    <skipped/>
+  </testcase>
+</testsuite>

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Test Runner</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1><a href="/">🧪 Test Runner</a></h1>
+    <span class="sub">uzaktan test koşumu &amp; canlı takip</span>
+  </header>
+  <main>
+    <section>
+      <h2>Projeler</h2>
+      <div id="projects" class="cards"></div>
+    </section>
+    <section>
+      <h2>Son Koşumlar</h2>
+      <table>
+        <thead>
+          <tr><th>Koşum</th><th>Durum</th><th>Sonuç</th><th>Başlangıç</th><th>Süre</th></tr>
+        </thead>
+        <tbody id="runs"></tbody>
+      </table>
+    </section>
+  </main>
+  <script src="app.js"></script>
+  <script>initDashboard();</script>
+</body>
+</html>

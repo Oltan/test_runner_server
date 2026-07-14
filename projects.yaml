@@ -1,0 +1,44 @@
+# Test Runner Server yapılandırması.
+# Sunucuyu başlatmadan önce auth_token'ı değiştirin ve projelerinizi tanımlayın.
+
+auth_token: "degistir-beni"
+data_dir: "data"
+
+projects:
+  # Sunucuyu gerçek bir Java projesi olmadan uçtan uca denemek için sahte koşum.
+  - id: fake-sim
+    name: "Örnek: Sahte Cucumber Simülasyonu"
+    path: examples/fake-cucumber-sim
+    command: "python3 run.py"
+    env:
+      FAKE_FAILING: "1"      # kaç senaryo FAIL etsin
+      FAKE_STEP_DELAY: "0.4" # adım başına saniye
+    results:
+      cucumber_json: target/cucumber-report.json
+    live_progress:
+      cucumber_ndjson: target/cucumber-messages.ndjson
+
+  # Gerçek Selenium + Cucumber projesi örneği.
+  # Cucumber runner'ınıza şu plugin'leri ekleyin (README'ye bakın):
+  #   plugin = {"json:target/cucumber-report.json",
+  #             "message:target/cucumber-messages.ndjson",
+  #             "rerun:target/rerun.txt"}
+  # - id: web-otomasyon
+  #   name: "Web Otomasyonu (Selenium + Cucumber)"
+  #   path: /opt/projects/web-otomasyon
+  #   command: "mvn -B test"
+  #   env:
+  #     HEADLESS: "true"
+  #   results:
+  #     cucumber_json: target/cucumber-report.json
+  #     junit_xml_dir: target/surefire-reports
+  #   live_progress:
+  #     cucumber_ndjson: target/cucumber-messages.ndjson
+
+  # JavaFX + TestFX projesi örneği (headless için xvfb-run).
+  # - id: javafx-app
+  #   name: "JavaFX Uygulaması (TestFX)"
+  #   path: /opt/projects/javafx-app
+  #   command: "xvfb-run -a mvn -B test"
+  #   results:
+  #     junit_xml_dir: target/surefire-reports

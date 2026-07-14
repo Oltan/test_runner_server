@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Koşum — Test Runner</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1><a href="/">🧪 Test Runner</a></h1>
+    <span class="sub">canlı koşum</span>
+  </header>
+  <main>
+    <div class="runbar">
+      <span class="title" id="run-id"></span>
+      <span id="run-status"></span>
+      <span class="stat">geçen: <b class="g" id="stat-passed">0</b></span>
+      <span class="stat">kalan: <b class="r" id="stat-failed">0</b></span>
+      <span class="stat">toplam: <b id="stat-total">?</b></span>
+      <span style="flex:1"></span>
+      <button class="danger" id="stop-btn">■ Durdur</button>
+    </div>
+
+    <div class="progress-wrap">
+      <div class="progress-track">
+        <div class="progress-passed" id="bar-passed" style="width:0%"></div>
+        <div class="progress-failed" id="bar-failed" style="width:0%"></div>
+      </div>
+      <div class="progress-label" id="progress-label">İlerleme bekleniyor…</div>
+    </div>
+
+    <div id="console"></div>
+  </main>
+  <script src="app.js"></script>
+  <script>initRunPage();</script>
+</body>
+</html>
