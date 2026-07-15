@@ -45,13 +45,15 @@ projects:
   #     command: "mvn -B test -Dcucumber.features=@target/rerun.txt"
   #     rerun_file: target/rerun.txt
   #   agent:                                  # Faz 2: LLM healing
-  #     llm:                                  # Mod A (locator) — tek çağrı
-  #       base_url: "http://vllm-sunucu:8000/v1"
-  #       model: "qwen3.6-32b"
+  #     llm:                                  # Mod A (locator) — tek çağrı:
+  #       base_url: "http://vllm-sunucu:8000/v1"   # hızlı/ucuz model yeter
+  #       model: "qwen3.6-35b-a3b"
   #       api_key_env: "LLM_API_KEY"          # anahtar bu env değişkeninden okunur
-  #     agent_command: >-                     # Mod B (assertion/akış) — opencode
-  #       opencode run --model "$HEAL_MODEL" "$(cat "$HEAL_PROMPT_FILE")"
-  #     agent_model: "qwen3.5-392b"
+  #     agent_command: >-                     # Mod B (assertion/akış) — agent.
+  #       opencode run --model "vllm/$HEAL_MODEL" "$(cat "$HEAL_PROMPT_FILE")"
+  #     agent_model: "glm-5.2-fp8"            # agentic görev; 128k ctx yeterli
+  #                                           # (pipeline context'i ~20-50k'da paketler).
+  #                                           # İnatçı hatalarda: qwen3.5-397b-a17b
   #     scenario_command: mvn -B test -Dcucumber.filter.name="$HEAL_SCENARIO"
   #     compile_command: "mvn -B test-compile -q"
   #     edit_whitelist:
