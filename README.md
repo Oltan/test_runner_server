@@ -1,5 +1,9 @@
 # Test Runner Server
 
+> 📖 **Sıfırdan kurulum, gerçek proje bağlama, healing devreye alma ve sorun
+> giderme için adım adım rehber: [docs/KILAVUZ.md](docs/KILAVUZ.md)** —
+> ilk kez kuruyorsanız oradan başlayın.
+
 Sunucu/VM üzerinde çalışan, uzaktan **web arayüzüyle** test koşumu başlatılan
 ve testlerin durumunu **canlı** (konsol çıktısı + geçme yüzdesi) gösteren hafif
 test runner. Komut satırından çalışıp JUnit XML veya Cucumber JSON üreten
