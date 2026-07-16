@@ -95,6 +95,12 @@ class RunManager:
         run_id = f"{project.id}-{started:%Y%m%d-%H%M%S}-{uuid4().hex[:6]}"
         log_path = self.logs_dir / f"{run_id}.log"
 
+        # {python} → sunucuyu çalıştıran Python yorumlayıcısı. Python tabanlı
+        # test komutları (örn. fake-sim) böylece platformdan bağımsız yazılır
+        # (Linux'ta python3, Windows'ta python/py derdi kalmaz).
+        command = ((command_override or project.command)
+                   .replace("{python}", f'"{sys.executable}"'))
+
         # Stop'un mvn→java→chrome zincirinin tamamını öldürebilmesi için süreç
         # kendi grubunda başlar: POSIX'te setsid, Windows'ta yeni process group.
         if _IS_WINDOWS:
@@ -103,7 +109,7 @@ class RunManager:
         else:
             group_kwargs = {"start_new_session": True}
         process = await asyncio.create_subprocess_shell(
-            command_override or project.command,
+            command,
             cwd=str(cwd),
             env={**os.environ, **project.env},
             stdout=asyncio.subprocess.PIPE,

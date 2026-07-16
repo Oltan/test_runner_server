@@ -15,6 +15,7 @@ import asyncio
 import json
 import os
 import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -326,7 +327,8 @@ class HealEngine:
             command = render_command(agent.agent_command,
                                      prompt_file=str(prompt_file),
                                      model=agent.agent_model or "",
-                                     scenario=scenario_row["scenario"])
+                                     scenario=scenario_row["scenario"],
+                                     python=f'"{sys.executable}"')
             try:
                 result = subprocess.run(
                     command, shell=True, cwd=worktree, env=env,
@@ -362,7 +364,8 @@ class HealEngine:
                       timeout: int, fail_message: str) -> str:
         env = {**os.environ, **project.env,
                "HEAL_SCENARIO": scenario_row["scenario"]}
-        command = render_command(command, scenario=scenario_row["scenario"])
+        command = render_command(command, scenario=scenario_row["scenario"],
+                                 python=f'"{sys.executable}"')
         try:
             result = subprocess.run(command, shell=True, cwd=worktree, env=env,
                                     capture_output=True, text=True,

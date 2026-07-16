@@ -7,10 +7,12 @@ keep_runs: 200          # proje başına saklanacak koşum (log + artefakt) say�
 
 projects:
   # Sunucuyu gerçek bir Java projesi olmadan uçtan uca denemek için sahte koşum.
+  # {python} = sunucuyu çalıştıran Python yorumlayıcısı — Windows'ta da
+  # Linux'ta da düzenleme gerektirmez (python/python3 farkını ortadan kaldırır).
   - id: fake-sim
     name: "Örnek: Sahte Cucumber Simülasyonu"
     path: examples/fake-cucumber-sim
-    command: "python3 run.py"
+    command: "{python} run.py"
     env:
       FAKE_FAILING: "1"      # deterministik FAIL sayısı
       FAKE_FLAKY: "1"        # ilk koşumda FAIL, retry'da PASS
@@ -21,7 +23,7 @@ projects:
       cucumber_ndjson: target/cucumber-messages.ndjson
     retry:
       enabled: true
-      command: "python3 run.py --rerun"
+      command: "{python} run.py --rerun"
       rerun_file: target/rerun.txt
 
   # Gerçek Selenium + Cucumber projesi örneği.

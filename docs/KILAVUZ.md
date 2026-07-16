@@ -121,11 +121,9 @@ python -m venv .venv
 #   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 pip install -r requirements.txt
 
-# ÖNEMLİ — iki düzeltme:
-# 1) projects.yaml → auth_token: "kendi-gizli-tokeniniz"
-# 2) projects.yaml → fake-sim projesinin komutunu Windows için değiştirin:
-#       command: "python run.py"        (Linux'taki "python3 run.py" yerine —
-#       Windows'ta python3.exe genelde yoktur)
+# ÖNEMLİ: projects.yaml → auth_token: "kendi-gizli-tokeniniz"
+# (fake-sim komutu "{python} run.py" — sunucunun kendi Python'una çözülür,
+#  Windows/Linux farkı için düzenleme GEREKMEZ)
 
 uvicorn server.main:app --host 0.0.0.0 --port 8000
 ```
@@ -246,8 +244,10 @@ Sistem Windows'ta da tam çalışır; farklar şunlardır:
 
 - **Komutlar:** projeleriniz için `command`/`retry.command` değerlerinde
   Windows'ta çalışan komutlar yazın (`mvn` Windows'ta `mvn.cmd`'yi bulur,
-  değişiklik gerekmez; ama `python3` yerine `python`, `xvfb-run` hiç yok —
-  Windows'ta gerekmez de).
+  değişiklik gerekmez; `xvfb-run` hiç yok — Windows'ta gerekmez de).
+  Python tabanlı komutlarda `{python}` yer tutucusunu kullanın — sunucuyu
+  çalıştıran yorumlayıcıya çözülür, `python`/`python3` farkı ortadan kalkar
+  (fake-sim ve heal fixture'ları zaten böyle gelir).
 - **Yollar:** `projects.yaml` içinde Windows yollarını **düz eğik çizgiyle**
   yazın: `path: C:/projects/web-otomasyon` (ters bölü YAML'da kaçış sorunu
   çıkarır).
@@ -703,7 +703,7 @@ olaylar: `{"type":"backlog"|"log"|"progress"|"finished"}`.
 | İstatistik hep 0/0 | `cucumber_json` yolu yanlış veya rapor üretilmiyor → `results:` yollarını dosya sistemiyle karşılaştırın |
 | Durdurulan koşumda istatistik görünüyor | Görünmemeli — koşum başlangıcından eski raporlar zaten yok sayılır; görüyorsanız saat senkronu bozuk olabilir (`timedatectl`) |
 | Chrome açılmıyor (headless) | `--no-sandbox --disable-dev-shm-usage` eklediniz mi? chromedriver ile Chrome sürümü uyumlu mu? |
-| **Windows:** koşum anında `error`, logda "python3 ... not found" | Windows'ta `python3` komutu yoktur → `projects.yaml`'daki `command`/`retry.command`/`scenario_command` değerlerinde `python` kullanın |
+| **Windows:** koşum anında `error`, logda "python3 ... not found" | Windows'ta `python3` komutu yoktur → kendi yazdığınız komutlarda `python` ya da `{python}` yer tutucusunu kullanın (repoyla gelen örnekler zaten `{python}` kullanır) |
 | **Windows:** `python` boş pencere açıyor / Store'a gidiyor | Ayarlar → App execution aliases → python takma adlarını kapatın, ya da komutlarda `py -3` kullanın |
 | **Windows:** `.venv\Scripts\Activate.ps1` "running scripts is disabled" | Bir kez: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
 | **Windows:** Durdur düğmesi süreçleri sert kapatıyor | Normaldir — Windows'ta nazik grup sinyali güvenilir olmadığından `taskkill /T /F` kullanılır; koşum yine düzgün `stopped` işaretlenir |

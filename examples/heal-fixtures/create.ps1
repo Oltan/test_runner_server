@@ -138,27 +138,27 @@ Gercek vLLM'e gecerken base_url ve model'i degistirmeniz yeterli.
   - id: heal-a
     name: "Heal Testi A (locator / Mod A)"
     path: $DestYaml/heal-fixture-a
-    command: "python check.py"
+    command: "{python} check.py"
     results:
       cucumber_json: target/cucumber-report.json
     agent:
       llm:
         base_url: "http://127.0.0.1:8199/v1"   # mock; vLLM'de degistirin
         model: "mock-model"                     # vLLM'de: qwen3.6-35b-a3b
-      scenario_command: "python check.py"
+      scenario_command: "{python} check.py"
       edit_whitelist:
         - pages/
 
   - id: heal-b
     name: "Heal Testi B (assertion / Mod B)"
     path: $DestYaml/heal-fixture-b
-    command: "python check.py"
+    command: "{python} check.py"
     results:
       cucumber_json: target/cucumber-report.json
     agent:
-      agent_command: "python fake_agent.py"     # sonra: aider/opencode komutu
+      agent_command: "{python} fake_agent.py"     # sonra: aider/opencode komutu
       agent_model: "mock-agent"                 # sonra: glm-5.2-fp8
-      scenario_command: "python check.py"
+      scenario_command: "{python} check.py"
       edit_whitelist:
         - steps/
 "@
