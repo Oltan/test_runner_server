@@ -6,10 +6,14 @@ import asyncio
 import os
 import shutil
 import signal
+import subprocess
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from uuid import uuid4
+
+_IS_WINDOWS = sys.platform == "win32"
 
 from .config import ProjectConfig, ServerConfig
 from .db import Database
@@ -86,14 +90,21 @@ class RunManager:
         run_id = f"{project.id}-{started:%Y%m%d-%H%M%S}-{uuid4().hex[:6]}"
         log_path = self.logs_dir / f"{run_id}.log"
 
+        # Stop'un mvn→java→chrome zincirinin tamamını öldürebilmesi için süreç
+        # kendi grubunda başlar: POSIX'te setsid, Windows'ta yeni process group.
+        if _IS_WINDOWS:
+            group_kwargs = {
+                "creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+        else:
+            group_kwargs = {"start_new_session": True}
         process = await asyncio.create_subprocess_shell(
             command_override or project.command,
             cwd=str(cwd),
             env={**os.environ, **project.env},
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
-            start_new_session=True,  # process group → stop tüm alt süreçleri öldürür
             limit=_LINE_LIMIT,
+            **group_kwargs,
         )
 
         handle = RunHandle(
@@ -115,8 +126,15 @@ class RunManager:
         if handle is None:
             raise KeyError(run_id)
         handle.stop_requested = True
-        self._signal_group(handle, signal.SIGTERM)
-        asyncio.create_task(self._kill_if_alive(handle))
+        if _IS_WINDOWS:
+            # Windows'ta güvenilir "nazik" grup sinyali yok; süreç ağacını
+            # taskkill ile indir (mvn → java → chromedriver → chrome dahil).
+            subprocess.run(
+                ["taskkill", "/PID", str(handle.process.pid), "/T", "/F"],
+                capture_output=True)
+        else:
+            self._signal_group(handle, signal.SIGTERM)
+            asyncio.create_task(self._kill_if_alive(handle))
 
     def subscribe(self, run_id: str) -> tuple[list[str], dict | None, asyncio.Queue] | None:
         """Aktif koşuma abone ol: (mevcut log satırları, son ilerleme, canlı kuyruk)."""

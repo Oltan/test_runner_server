@@ -49,12 +49,18 @@ projects:
   #       base_url: "http://vllm-sunucu:8000/v1"   # hızlı/ucuz model yeter
   #       model: "qwen3.6-35b-a3b"
   #       api_key_env: "LLM_API_KEY"          # anahtar bu env değişkeninden okunur
-  #     agent_command: >-                     # Mod B (assertion/akış) — agent.
-  #       opencode run --model "vllm/$HEAL_MODEL" "$(cat "$HEAL_PROMPT_FILE")"
+  #     # Mod B agent komutu. {prompt_file}, {model}, {scenario} yer tutucuları
+  #     # her platformda çalışır (bash/cmd farkı yok); HEAL_* env değişkenleri
+  #     # de ayrıca set edilir. Windows'ta en pürüzsüzü aider'dır:
+  #     #   aider --yes-always --no-auto-commits --model "openai/{model}"
+  #     #         --message-file "{prompt_file}"
+  #     # opencode (Linux/macOS veya Windows'ta Git Bash ile):
+  #     agent_command: >-
+  #       bash -lc 'opencode run --model "vllm/$HEAL_MODEL" "$(cat "$HEAL_PROMPT_FILE")"'
   #     agent_model: "glm-5.2-fp8"            # agentic görev; 128k ctx yeterli
   #                                           # (pipeline context'i ~20-50k'da paketler).
   #                                           # İnatçı hatalarda: qwen3.5-397b-a17b
-  #     scenario_command: mvn -B test -Dcucumber.filter.name="$HEAL_SCENARIO"
+  #     scenario_command: mvn -B test -Dcucumber.filter.name="{scenario}"
   #     compile_command: "mvn -B test-compile -q"
   #     edit_whitelist:
   #       - src/test/java/pages/

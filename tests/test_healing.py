@@ -150,3 +150,23 @@ def test_extract_json_block_with_fences():
 def test_extract_json_block_invalid():
     with pytest.raises(HealError):
         extract_json_block("hiç json yok burada")
+
+
+# --- komut yer tutucuları (platform bağımsızlık) ------------------------------------
+
+def test_render_command_placeholders():
+    from server.healing.engine import render_command
+
+    rendered = render_command(
+        'mvn -B test -Dcucumber.filter.name="{scenario}"',
+        scenario="Kilitli kullanıcı")
+    assert rendered == 'mvn -B test -Dcucumber.filter.name="Kilitli kullanıcı"'
+
+    rendered = render_command(
+        'aider --message-file "{prompt_file}" --model "openai/{model}"',
+        prompt_file=r"C:\work\HEAL_TASK.md", model="glm-5.2-fp8")
+    assert r"C:\work\HEAL_TASK.md" in rendered
+    assert "glm-5.2-fp8" in rendered
+
+    # yer tutucu kullanmayan komutlar aynen kalır
+    assert render_command("python check.py", scenario="x") == "python check.py"

@@ -89,13 +89,17 @@ Temel fikirler:
 
 Amaç: Java projesi olmadan, sahte simülatörle tüm akışı görmek.
 
-**Gereksinim:** Python 3.11+ ve git.
+**Gereksinim:** Python 3.11+ ve git. (Windows'ta: python.org kurulumunda
+"Add python.exe to PATH" işaretli olsun; git = Git for Windows.)
+
+**Linux/macOS:**
 
 ```bash
 git clone <repo-url> test_runner_server
 cd test_runner_server
 git checkout claude/admiring-clarke-y7mcvc
 
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # ÖNEMLİ: önce token'ı değiştirin
@@ -103,6 +107,32 @@ pip install -r requirements.txt
 
 uvicorn server.main:app --host 0.0.0.0 --port 8000
 ```
+
+**Windows (PowerShell):**
+
+```powershell
+git clone <repo-url> test_runner_server
+cd test_runner_server
+git checkout claude/admiring-clarke-y7mcvc
+
+python -m venv .venv
+.venv\Scripts\Activate.ps1
+# "running scripts is disabled" hatası alırsanız (bir kez, yönetici gerekmez):
+#   Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+pip install -r requirements.txt
+
+# ÖNEMLİ — iki düzeltme:
+# 1) projects.yaml → auth_token: "kendi-gizli-tokeniniz"
+# 2) projects.yaml → fake-sim projesinin komutunu Windows için değiştirin:
+#       command: "python run.py"        (Linux'taki "python3 run.py" yerine —
+#       Windows'ta python3.exe genelde yoktur)
+
+uvicorn server.main:app --host 0.0.0.0 --port 8000
+```
+
+> Windows notu: `python` komutu Microsoft Store yönlendiricisine takılıyorsa
+> (boş pencere açılıyorsa) Ayarlar → "App execution aliases" bölümünden
+> python.exe takma adlarını kapatın veya `py -3` kullanın.
 
 Tarayıcıdan `http://localhost:8000` açın. Token sorulduğunda
 `projects.yaml`'daki değeri girin (token tarayıcının localStorage'ında
@@ -210,8 +240,35 @@ server {
 }
 ```
 
+### 4.5 Windows makinede sunucu çalıştırma (Linux VM yerine)
+
+Sistem Windows'ta da tam çalışır; farklar şunlardır:
+
+- **Komutlar:** projeleriniz için `command`/`retry.command` değerlerinde
+  Windows'ta çalışan komutlar yazın (`mvn` Windows'ta `mvn.cmd`'yi bulur,
+  değişiklik gerekmez; ama `python3` yerine `python`, `xvfb-run` hiç yok —
+  Windows'ta gerekmez de).
+- **Yollar:** `projects.yaml` içinde Windows yollarını **düz eğik çizgiyle**
+  yazın: `path: C:/projects/web-otomasyon` (ters bölü YAML'da kaçış sorunu
+  çıkarır).
+- **Durdurma davranışı:** Linux'ta önce nazik SIGTERM + 10 sn sonra zorla
+  öldürme yapılır; Windows'ta güvenilir nazik grup sinyali olmadığı için
+  **Durdur** düğmesi süreç ağacını doğrudan `taskkill /T /F` ile indirir
+  (mvn → java → chromedriver → chrome dahil). Sonuç aynıdır: koşum `stopped`.
+- **Kalıcı servis:** systemd yoktur. En kolayı: sunucuyu bir Görev
+  Zamanlayıcı (Task Scheduler) görevi olarak "At startup" tetikleyicisiyle
+  çalıştırmak, ya da [NSSM](https://nssm.cc) ile Windows servisi yapmak:
+  `nssm install TestRunner "C:\...\test_runner_server\.venv\Scripts\uvicorn.exe" "server.main:app --host 0.0.0.0 --port 8000"`
+  (AppDirectory'yi repo köküne ayarlayın).
+- **Güvenlik duvarı:** Uzak erişim için 8000 portuna gelen bağlantıya izin
+  verin: `netsh advfirewall firewall add rule name="TestRunner" dir=in action=allow protocol=TCP localport=8000`
+- **Healing komutları:** `scenario_command`/`agent_command` içinde bash'e özgü
+  `$DEĞIŞKEN` yerine **`{scenario}`, `{prompt_file}`, `{model}` yer
+  tutucularını** kullanın — bunları sunucu shell'den bağımsız doldurur,
+  aynı yaml her iki platformda çalışır (bkz. 7.3).
+
 > **KONTROL NOKTASI 1:** Uzak bilgisayarınızın tarayıcısından arayüz
-> açılıyor ve fake-sim koşumu Aşama 0'daki gibi çalışıyorsa VM hazır.
+> açılıyor ve fake-sim koşumu Aşama 0'daki gibi çalışıyorsa sunucu hazır.
 
 ## 5. Aşama 2 — Gerçek Selenium+Cucumber projesini bağlama
 
@@ -345,19 +402,26 @@ Sıra önemli: **önce 7.1 fixture testi (kendi projenize dokunmadan), sonra
 
 ### 7.1 Healing'i fixture ile test edin (projenize dokunmadan)
 
-Repoda hazır script var; iki sahte "Java" projesi (git repo) oluşturur:
+Repoda hazır script var; iki sahte "Java" projesi (git repo) oluşturur.
+Çıktının sonunda `projects.yaml`'a yapıştırılacak hazır blok basılır:
 
 ```bash
-cd /opt/test_runner_server
+# Linux/macOS:
 bash examples/heal-fixtures/create.sh /opt/projects/heal-fixtures
-# Çıktının sonunda projects.yaml'a yapıştırılacak hazır blok basılır.
+```
+
+```powershell
+# Windows (PowerShell):
+powershell -ExecutionPolicy Bypass -File examples\heal-fixtures\create.ps1
+# (varsayılan hedef: %TEMP%\heal-fixtures; isterseniz dizin argümanı verin)
 ```
 
 **Adım 1 — vLLM'siz kuru test (mock LLM ile):**
 
 ```bash
-# mock LLM'i başlatın (sabit bir locator düzeltmesi döndürür):
-python3 examples/heal-fixtures/mock_llm.py &     # port 8199
+# mock LLM'i başlatın (sabit bir locator düzeltmesi döndürür, port 8199):
+python3 examples/heal-fixtures/mock_llm.py &          # Linux/macOS
+# Windows: ayrı bir terminalde → python examples\heal-fixtures\mock_llm.py
 ```
 
 Script'in bastığı yaml bloğunu `projects.yaml`'a ekleyin (mock için
@@ -443,10 +507,11 @@ Projenizin `projects.yaml` girdisine ekleyin:
         base_url: "http://VLLM-SUNUCU:8000/v1"
         model: "qwen3.6-35b-a3b"
         # api_key_env: "LLM_API_KEY"         # endpoint anahtar istiyorsa
-      agent_command: >-                      # Mod B — coding agent
-        opencode run --model "vllm/$HEAL_MODEL" "$(cat "$HEAL_PROMPT_FILE")"
+      agent_command: >-                      # Mod B — coding agent (aşağıya bakın)
+        aider --yes-always --no-auto-commits --model "openai/{model}"
+              --message-file "{prompt_file}"
       agent_model: "glm-5.2-fp8"
-      scenario_command: mvn -B test -Dcucumber.filter.name="$HEAL_SCENARIO"
+      scenario_command: mvn -B test -Dcucumber.filter.name="{scenario}"
       compile_command: "mvn -B test-compile -q"
       edit_whitelist:
         - src/test/java/pages/
@@ -457,9 +522,24 @@ Projenizin `projects.yaml` girdisine ekleyin:
 
 - **Proje git deposu olmalı** ve `target/` `.gitignore`'da olmalı (yoksa
   Mod B'nin whitelist kontrolü build çıktılarını ihlal sanır).
-- `scenario_command` içinde `$HEAL_SCENARIO` env değişkeni senaryo adını
-  taşır — tırnaklara dikkat (yukarıdaki biçim doğrudur).
-- opencode kuruluysa test reponuzun köküne provider config'i ekleyin
+- **Yer tutucular:** `{scenario}`, `{prompt_file}`, `{model}` komut
+  çalıştırılmadan önce sunucu tarafından doldurulur — **shell'den
+  bağımsızdır, Windows'ta da Linux'ta da aynen çalışır.** (Alternatif
+  olarak `HEAL_SCENARIO`, `HEAL_PROMPT_FILE`, `HEAL_MODEL` ortam
+  değişkenleri de set edilir; ama bunların sözdizimi platforma göre
+  değişir: bash `$HEAL_SCENARIO`, cmd `%HEAL_SCENARIO%`. Taşınabilirlik
+  için yer tutucuları tercih edin.)
+- **Agent seçenekleri** (`agent_command` tek satırla değişir):
+
+  **aider (Windows'ta en pürüzsüz — önerilen başlangıç):** yukarıdaki
+  örnek zaten aider'dır ve yer tutucular sayesinde her platformda çalışır.
+  Endpoint'i ortam değişkenleriyle verin — Windows'ta sunucuyu başlatan
+  terminalde/serviste `OPENAI_API_BASE=http://VLLM-SUNUCU:8000/v1` ve
+  `OPENAI_API_KEY=dummy` set edin (PowerShell:
+  `$env:OPENAI_API_BASE="http://VLLM-SUNUCU:8000/v1"`).
+  `--no-auto-commits` şart — commit'i healing motoru atar.
+
+  **opencode:** test reponuzun köküne provider config'i ekleyin
   (`opencode.json`; alanları kurduğunuz sürümün dokümanıyla doğrulayın):
 
 ```json
@@ -474,16 +554,15 @@ Projenizin `projects.yaml` girdisine ekleyin:
 }
 ```
 
-- opencode yerine **aider** kullanacaksanız:
+  opencode'un `run` komutu prompt'u argüman olarak ister; dosyadan okuma
+  bash gerektirir. Linux'ta ve **Windows'ta Git Bash kuruluyken** (Git for
+  Windows ile gelir, healing için git zaten şart) şu biçim iki platformda
+  da çalışır:
 
 ```yaml
       agent_command: >-
-        OPENAI_API_BASE=http://VLLM-SUNUCU:8000/v1 OPENAI_API_KEY=dummy
-        aider --yes-always --no-auto-commits --model "openai/$HEAL_MODEL"
-              --message-file "$HEAL_PROMPT_FILE"
+        bash -lc 'opencode run --model "vllm/$HEAL_MODEL" "$(cat "$HEAL_PROMPT_FILE")"'
 ```
-
-  (`--no-auto-commits` şart — commit'i healing motoru atar.)
 
 ### 7.4 Healing'i kullanma (günlük akış)
 
@@ -579,6 +658,11 @@ olaylar: `{"type":"backlog"|"log"|"progress"|"finished"}`.
 | İstatistik hep 0/0 | `cucumber_json` yolu yanlış veya rapor üretilmiyor → `results:` yollarını dosya sistemiyle karşılaştırın |
 | Durdurulan koşumda istatistik görünüyor | Görünmemeli — koşum başlangıcından eski raporlar zaten yok sayılır; görüyorsanız saat senkronu bozuk olabilir (`timedatectl`) |
 | Chrome açılmıyor (headless) | `--no-sandbox --disable-dev-shm-usage` eklediniz mi? chromedriver ile Chrome sürümü uyumlu mu? |
+| **Windows:** koşum anında `error`, logda "python3 ... not found" | Windows'ta `python3` komutu yoktur → `projects.yaml`'daki `command`/`retry.command`/`scenario_command` değerlerinde `python` kullanın |
+| **Windows:** `python` boş pencere açıyor / Store'a gidiyor | Ayarlar → App execution aliases → python takma adlarını kapatın, ya da komutlarda `py -3` kullanın |
+| **Windows:** `.venv\Scripts\Activate.ps1` "running scripts is disabled" | Bir kez: `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned` |
+| **Windows:** Durdur düğmesi süreçleri sert kapatıyor | Normaldir — Windows'ta nazik grup sinyali güvenilir olmadığından `taskkill /T /F` kullanılır; koşum yine düzgün `stopped` işaretlenir |
+| **Windows:** uzak makineden arayüz açılmıyor ama lokalde açılıyor | Güvenlik duvarı → `netsh advfirewall firewall add rule name="TestRunner" dir=in action=allow protocol=TCP localport=8000` |
 
 **Retry/flaky:**
 
@@ -600,6 +684,7 @@ olaylar: `{"type":"backlog"|"log"|"progress"|"finished"}`.
 | `needs_human` | Kasıtlı durma (çoklu eşleşme, tür değişikliği önerisi) → aşama detayındaki gerekçeyi okuyun |
 | LLM çağrısı başarısız | `curl <base_url>/models` ile endpoint'i doğrulayın; sunucudan vLLM'e ağ erişimi var mı? |
 | Mod B: "whitelist DIŞINA dokundu" | Agent taşkınlık yaptı (koruma çalıştı) → `edit_whitelist`'i gözden geçirin ya da AGENTS.md kurallarını netleştirin; `target/` gitignore'da mı? |
+| **Windows:** agent/senaryo komutu `$HEAL_...` değişkenini çözmüyor | `$VAR` bash sözdizimidir, cmd anlamaz → komutlarda `{scenario}` / `{prompt_file}` / `{model}` yer tutucularını kullanın (7.3) veya komutu `bash -lc '...'` ile sarın (Git Bash) |
 | Yarıda kalan heal / kalıntı worktree | Sunucu heal ortasında yeniden başladıysa: proje dizininde `git worktree list` → `git worktree prune` → kalan `heal/*` branch'lerini `git branch -D` ile silin |
 
 ## 11. Veri dizini ve bakım

@@ -47,6 +47,15 @@ def _fill(template: str, values: dict[str, str]) -> str:
     return template
 
 
+def render_command(template: str, **values: str) -> str:
+    """Komut şablonundaki {scenario}, {prompt_file}, {model} yer tutucularını
+    doldurur. Ortam değişkenlerinden (HEAL_*) farklı olarak shell'den
+    bağımsızdır — aynı projects.yaml Linux'ta da Windows'ta da çalışır."""
+    for key, value in values.items():
+        template = template.replace("{" + key + "}", value)
+    return template
+
+
 class HealEngine:
     def __init__(self, config: ServerConfig, db: Database):
         self.config = config
@@ -314,9 +323,13 @@ class HealEngine:
                 "HEAL_MODEL": agent.agent_model or "",
                 "HEAL_SCENARIO": scenario_row["scenario"],
             }
+            command = render_command(agent.agent_command,
+                                     prompt_file=str(prompt_file),
+                                     model=agent.agent_model or "",
+                                     scenario=scenario_row["scenario"])
             try:
                 result = subprocess.run(
-                    agent.agent_command, shell=True, cwd=worktree, env=env,
+                    command, shell=True, cwd=worktree, env=env,
                     capture_output=True, text=True,
                     timeout=agent.command_timeout_s)
             except subprocess.TimeoutExpired as exc:
@@ -349,6 +362,7 @@ class HealEngine:
                       timeout: int, fail_message: str) -> str:
         env = {**os.environ, **project.env,
                "HEAL_SCENARIO": scenario_row["scenario"]}
+        command = render_command(command, scenario=scenario_row["scenario"])
         try:
             result = subprocess.run(command, shell=True, cwd=worktree, env=env,
                                     capture_output=True, text=True,
