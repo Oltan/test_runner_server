@@ -77,9 +77,14 @@ class RunManager:
 
         ndjson_path: Path | None = None
         if project.live_progress.cucumber_ndjson:
-            # Önceki koşumdan kalan dosya canlı sayacı bozmasın
+            # Önceki koşumdan kalan dosya canlı sayacı bozmasın.
+            # (Windows'ta dosya kilitliyse silinemeyebilir — koşumu
+            # engelleme; Cucumber dosyayı zaten baştan yazar.)
             ndjson_path = cwd / project.live_progress.cucumber_ndjson
-            ndjson_path.unlink(missing_ok=True)
+            try:
+                ndjson_path.unlink(missing_ok=True)
+            except OSError:
+                pass
         if not is_retry:
             # Önceki koşumun hata artefaktları yenisine karışmasın
             # (retry aynı koşumun devamı sayılır, dokunma)

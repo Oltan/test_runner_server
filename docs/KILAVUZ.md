@@ -267,6 +267,51 @@ Sistem Windows'ta da tam çalışır; farklar şunlardır:
   tutucularını** kullanın — bunları sunucu shell'den bağımsız doldurur,
   aynı yaml her iki platformda çalışır (bkz. 7.3).
 
+### 4.6 Windows'ta platform davranışını doğrulama
+
+Sunucu kodundaki platforma özel iki yol (süreç grubu başlatma ve durdurma)
+için repoda **çalıştırılabilir bir test** var; Windows makinenizde koşun:
+
+```powershell
+.venv\Scripts\Activate.ps1
+pip install pytest
+python -m pytest tests\test_stop_tree.py -v     # taskkill yolunu SİZİN makinenizde test eder
+python -m pytest tests -v                        # tüm birim testleri (26)
+```
+
+`test_stop_tree.py` gerçek bir süreç ağacı kurar (parent → child; mvn →
+java → chrome zincirinin küçük modeli), Durdur akışını çağırır ve **child
+sürecin de** öldüğünü heartbeat dosyalarıyla kanıtlar. Linux'ta `killpg`
+yolunu, Windows'ta `taskkill /T /F` yolunu test eder — geçiyorsa Durdur
+düğmesine güvenebilirsiniz.
+
+Ardından elle duman testi (5 dk):
+1. fake-sim'i koşun (`command: "python run.py"` düzeltmesiyle) → canlı log
+   + yüzde + otomatik retry + flaky rozeti (Aşama 0'daki gibi).
+2. Koşum sırasında **Durdur**'a basın → durum `stopped`, Görev
+   Yöneticisi'nde python süreçleri kalmamalı.
+3. Healing: `create.ps1` + `mock_llm.py` ile 7.1'deki Adım 1'i uygulayın →
+   Mod A "proposed"a ulaşmalı, onayda branch fixture repoda kalmalı.
+
+### 4.7 Windows ↔ Linux geçişi (aynı repoyu iki tarafta kullanmak)
+
+Kod tarafı iki platformda da aynıdır; geçişte dikkat edilecek üç nokta var:
+
+1. **`projects.yaml` makineye özgüdür** — yollar (`C:/projects` vs
+   `/opt/projects`) ve komutlar (`python` vs `python3`, `xvfb-run`) farklı.
+   Çözüm: makine başına ayrı dosya tutun ve sunucuyu `CONFIG_PATH` ile
+   başlatın: `projects.windows.yaml`, `projects.linux.yaml`.
+   (İkisi de repoda durabilir; hangi makinedeyseniz onu gösterirsiniz.)
+2. **`data/` dizini taşınmaz.** Koşum kayıtları log dosyalarına mutlak
+   yolla işaret eder; diğer işletim sistemine kopyalarsanız eski logların
+   içeriği açılmaz (sistem çökmez, sadece geçmiş loglar boş görünür).
+   Her makine kendi `data/`'sını üretsin — zaten `.gitignore`'dadır.
+3. **Satır sonları `.gitattributes` ile sabitlendi** — `.sh`/`.py` dosyaları
+   Windows'ta da LF kalır, Git Bash script'leri bozulmaz. Bu dosya repoya
+   sonradan eklendiği için **mevcut bir Windows klonunda** bir kez şunu
+   çalıştırın (yeni klonlarda gerekmez):
+   `git add --renormalize . && git status` (değişiklik görünürse commit'leyin).
+
 > **KONTROL NOKTASI 1:** Uzak bilgisayarınızın tarayıcısından arayüz
 > açılıyor ve fake-sim koşumu Aşama 0'daki gibi çalışıyorsa sunucu hazır.
 

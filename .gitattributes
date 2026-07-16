@@ -1,0 +1,13 @@
+# Windows <-> Linux geçişlerinde satır sonu sorunlarını önler.
+# (Windows'ta autocrlf açık olsa bile bash/python dosyaları LF kalır.)
+* text=auto
+*.py   text eol=lf
+*.sh   text eol=lf
+*.md   text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.html text eol=lf
+*.css  text eol=lf
+*.js   text eol=lf
+*.java text eol=lf
+*.ps1  text eol=crlf
