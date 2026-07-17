@@ -544,6 +544,19 @@ public class TestContext {
 
 ### 7.3 Gerçek projede agent yapılandırması
 
+> **"opencode nerede çağrılıyor?"** Sunucuda gömülü bir opencode modülü
+> YOKTUR — bu bilinçli bir tasarım: Mod B'de sunucu, `agent_command`
+> satırınızı worktree içinde çalıştırır, o satır opencode/aider/başka bir
+> agent olabilir (kod: `server/healing/engine.py` → `_mod_b`). Sunucu
+> çalıştırmadan önce görev dosyasını (`HEAL_TASK.md`) worktree'ye yazar ve
+> `HEAL_PROMPT_FILE`, `HEAL_MODEL`, `HEAL_SCENARIO` env değişkenleri ile
+> `{prompt_file}`, `{model}`, `{scenario}` yer tutucularını sağlar; agent
+> bitince diff whitelist + doğrulama zinciri sunucuya geri döner. Fixture
+> testindeki `fake_agent.py` bu satırın taklit doldurmasıdır — gerçek
+> entegrasyon, o satırı gerçek agent komutuyla değiştirmekten ibarettir.
+> Altın kural: **agent komutunu önce sunucusuz, düz terminalde çalıştırıp
+> doğrulayın** — terminalde çalışmayan komut sunucudan da çalışmaz.
+
 Projenizin `projects.yaml` girdisine ekleyin:
 
 ```yaml
