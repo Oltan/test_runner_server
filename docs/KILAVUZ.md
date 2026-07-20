@@ -565,10 +565,10 @@ Projenizin `projects.yaml` girdisine ekleyin:
         base_url: "http://VLLM-SUNUCU:8000/v1"
         model: "qwen3.6-35b-a3b"
         # api_key_env: "LLM_API_KEY"         # endpoint anahtar istiyorsa
-      agent_command: >-                      # Mod B — coding agent (aşağıya bakın)
-        aider --yes-always --no-auto-commits --model "openai/{model}"
-              --message-file "{prompt_file}"
-      agent_model: "glm-5.2-fp8"
+      provider: opencode                     # Mod B — opencode | claude-code | aider | custom
+      agent_model: "vllm/glm-5.2-fp8"
+      # env:
+      #   HEAL_AGENT_BIN: "C:/.../opencode.cmd"  # binary PATH'te değilse tam yol
       scenario_command: mvn -B test -Dcucumber.filter.name="{scenario}"
       compile_command: "mvn -B test-compile -q"
       edit_whitelist:
@@ -587,18 +587,24 @@ Projenizin `projects.yaml` girdisine ekleyin:
   değişkenleri de set edilir; ama bunların sözdizimi platforma göre
   değişir: bash `$HEAL_SCENARIO`, cmd `%HEAL_SCENARIO%`. Taşınabilirlik
   için yer tutucuları tercih edin.)
-- **Agent seçenekleri** (`agent_command` tek satırla değişir):
+- **Hazır agent sağlayıcıları (`provider`):** Komut satırı yazmanız gerekmez —
+  `provider` seçin, sunucu doğru başlatıcıyı (`agent/launchers/*.py`, Python
+  tabanlı = her platformda aynı) kendisi çalıştırır:
 
-  **aider (Windows'ta en pürüzsüz — önerilen başlangıç):** yukarıdaki
-  örnek zaten aider'dır ve yer tutucular sayesinde her platformda çalışır.
-  Endpoint'i ortam değişkenleriyle verin — Windows'ta sunucuyu başlatan
-  terminalde/serviste `OPENAI_API_BASE=http://VLLM-SUNUCU:8000/v1` ve
-  `OPENAI_API_KEY=dummy` set edin (PowerShell:
-  `$env:OPENAI_API_BASE="http://VLLM-SUNUCU:8000/v1"`).
-  `--no-auto-commits` şart — commit'i healing motoru atar.
+  | provider | Ne çalıştırır | Gerekli ek kurulum |
+  |---|---|---|
+  | `opencode` | `opencode run --model <agent_model> "<görev>"` | opencode kurulu + test reponuzda `opencode.json` (aşağıda); `agent_model` = `vllm/glm-5.2-fp8` gibi provider-önekli |
+  | `claude-code` | `claude -p "<görev>" --permission-mode acceptEdits --allowedTools ...` | Claude Code kurulu; kendi vLLM'iniz için `env:` ile `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` (Anthropic-uyumlu endpoint/router) |
+  | `aider` | `aider --yes-always --no-auto-commits --message-file <görev>` | aider kurulu; `env:` ile `OPENAI_API_BASE` / `OPENAI_API_KEY`; `agent_model` = `openai/glm-5.2-fp8` gibi |
+  | `custom` | `agent_command` satırınızı aynen | tam kontrol — `{prompt_file}`, `{model}`, `{scenario}`, `{python}` yer tutucuları kullanılabilir |
 
-  **opencode:** test reponuzun köküne provider config'i ekleyin
-  (`opencode.json`; alanları kurduğunuz sürümün dokümanıyla doğrulayın):
+  Ortak ayarlar (`agent.env` içinde): `HEAL_AGENT_BIN` = binary PATH'te
+  değilse tam yolu (Windows'ta sık gerekir, örn. `C:/Users/.../claude.cmd`);
+  `HEAL_AGENT_ARGS` = ek CLI argümanları; claude-code için `HEAL_ALLOWED_TOOLS`
+  ile izinli araç listesi ezilebilir.
+
+  opencode için test reponuzun köküne `opencode.json` (alanları kurduğunuz
+  sürümün dokümanıyla doğrulayın):
 
 ```json
 {
@@ -610,16 +616,6 @@ Projenizin `projects.yaml` girdisine ekleyin:
     }
   }
 }
-```
-
-  opencode'un `run` komutu prompt'u argüman olarak ister; dosyadan okuma
-  bash gerektirir. Linux'ta ve **Windows'ta Git Bash kuruluyken** (Git for
-  Windows ile gelir, healing için git zaten şart) şu biçim iki platformda
-  da çalışır:
-
-```yaml
-      agent_command: >-
-        bash -lc 'opencode run --model "vllm/$HEAL_MODEL" "$(cat "$HEAL_PROMPT_FILE")"'
 ```
 
 ### 7.4 Healing'i kullanma (günlük akış)

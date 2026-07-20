@@ -51,17 +51,31 @@ projects:
   #       base_url: "http://vllm-sunucu:8000/v1"   # hızlı/ucuz model yeter
   #       model: "qwen3.6-35b-a3b"
   #       api_key_env: "LLM_API_KEY"          # anahtar bu env değişkeninden okunur
-  #     # Mod B agent komutu. {prompt_file}, {model}, {scenario} yer tutucuları
-  #     # her platformda çalışır (bash/cmd farkı yok); HEAL_* env değişkenleri
-  #     # de ayrıca set edilir. Windows'ta en pürüzsüzü aider'dır:
-  #     #   aider --yes-always --no-auto-commits --model "openai/{model}"
-  #     #         --message-file "{prompt_file}"
-  #     # opencode (Linux/macOS veya Windows'ta Git Bash ile):
-  #     agent_command: >-
-  #       bash -lc 'opencode run --model "vllm/$HEAL_MODEL" "$(cat "$HEAL_PROMPT_FILE")"'
-  #     agent_model: "glm-5.2-fp8"            # agentic görev; 128k ctx yeterli
-  #                                           # (pipeline context'i ~20-50k'da paketler).
-  #                                           # İnatçı hatalarda: qwen3.5-397b-a17b
+  #
+  #     # ---- Mod B agent'ı: provider seçin, komutu sunucu kendisi kurar ----
+  #     provider: opencode                    # opencode | claude-code | aider | custom
+  #     agent_model: "vllm/glm-5.2-fp8"       # opencode: opencode.json'daki provider adıyla
+  #     env:                                  # agent'a özel ortam değişkenleri
+  #       # HEAL_AGENT_BIN: "C:/Users/.../opencode.cmd"   # PATH'te değilse tam yol
+  #       # HEAL_AGENT_ARGS: "--ek-arguman"               # opsiyonel ek CLI argümanları
+  #
+  #     # provider: claude-code için örnek (vLLM'in Anthropic-uyumlu endpoint'i ile):
+  #     #   provider: claude-code
+  #     #   agent_model: "glm-5.2-fp8"
+  #     #   env:
+  #     #     ANTHROPIC_BASE_URL: "http://vllm-sunucu:8000"
+  #     #     ANTHROPIC_AUTH_TOKEN: "dummy"
+  #
+  #     # provider: aider için örnek (Windows'ta en pürüzsüz):
+  #     #   provider: aider
+  #     #   agent_model: "openai/glm-5.2-fp8"
+  #     #   env:
+  #     #     OPENAI_API_BASE: "http://vllm-sunucu:8000/v1"
+  #     #     OPENAI_API_KEY: "dummy"
+  #
+  #     # Tam kontrol isterseniz: provider: custom + agent_command
+  #     # ({prompt_file}, {model}, {scenario}, {python} yer tutucuları kullanılabilir)
+  #
   #     scenario_command: mvn -B test -Dcucumber.filter.name="{scenario}"
   #     compile_command: "mvn -B test-compile -q"
   #     edit_whitelist:

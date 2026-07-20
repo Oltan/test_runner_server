@@ -41,10 +41,17 @@ class LLMConfig(BaseModel):
 class AgentConfig(BaseModel):
     """Faz 2 healing ayarları (proje bazında)."""
     llm: LLMConfig | None = None          # Mod A: tek çağrılık locator düzeltme
-    agent_command: str | None = None      # Mod B: coding agent komutu (opencode).
+    # Mod B agent'ı: hazır sağlayıcı seçin — sunucu doğru komutu kendisi kurar.
+    #   opencode | claude-code | aider | custom (custom → agent_command zorunlu)
+    provider: str = "custom"
+    agent_command: str | None = None      # provider: custom için tam komut.
     # Komut worktree içinde shell ile koşar; şu env değişkenlerini alır:
-    #   HEAL_PROMPT_FILE (görev tanımı), HEAL_MODEL, HEAL_SCENARIO
+    #   HEAL_PROMPT_FILE (görev tanımı), HEAL_MODEL, HEAL_SCENARIO,
+    #   HEAL_AGENT_BIN/HEAL_AGENT_ARGS (başlatıcılar için, agent.env ile ezilebilir)
     agent_model: str | None = None        # Mod B'ye HEAL_MODEL olarak geçer
+    env: dict[str, str] = Field(default_factory=dict)
+    # Agent'a özel ortam değişkenleri: OPENAI_API_BASE, ANTHROPIC_BASE_URL,
+    # HEAL_AGENT_BIN (tam yol), HEAL_AGENT_ARGS (ek CLI argümanları) vb.
     scenario_command: str                 # tek senaryoyu koşma (env: HEAL_SCENARIO)
     compile_command: str | None = None    # ör: mvn -B test-compile -q
     edit_whitelist: list[str] = Field(

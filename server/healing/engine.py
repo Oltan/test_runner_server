@@ -23,6 +23,7 @@ from uuid import uuid4
 from . import HealError
 from ..config import ProjectConfig, ServerConfig
 from ..db import Database
+from .agents import build_agent_command
 from .classify import classify
 from .domprune import prune_dom
 from .llm import chat_completion, extract_json_block
@@ -89,8 +90,10 @@ class HealEngine:
                     "mode='b' ile agent'a zorlayabilirsiniz.")
         if mode == "a" and agent.llm is None:
             raise HealError("Mod A için `agent.llm` yapılandırması gerekli.")
-        if mode == "b" and not agent.agent_command:
-            raise HealError("Mod B için `agent.agent_command` gerekli.")
+        if mode == "b" and agent.provider == "custom" and not agent.agent_command:
+            raise HealError(
+                "Mod B için `agent.provider` seçin (opencode/claude-code/aider)"
+                " ya da `agent_command` yazın.")
 
         heal_id = uuid4().hex[:12]
         model = (agent.llm.model if mode == "a" and agent.llm
@@ -319,12 +322,15 @@ class HealEngine:
 
         def run_agent() -> str:
             env = {
-                **os.environ, **project.env,
+                **os.environ, **project.env, **agent.env,
                 "HEAL_PROMPT_FILE": str(prompt_file),
                 "HEAL_MODEL": agent.agent_model or "",
                 "HEAL_SCENARIO": scenario_row["scenario"],
             }
-            command = render_command(agent.agent_command,
+            # agent_command verilmişse o kazanır; yoksa provider'a göre
+            # hazır başlatıcı (agent/launchers/) kullanılır.
+            template = agent.agent_command or build_agent_command(agent.provider)
+            command = render_command(template,
                                      prompt_file=str(prompt_file),
                                      model=agent.agent_model or "",
                                      scenario=scenario_row["scenario"],
