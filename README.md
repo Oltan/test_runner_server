@@ -140,6 +140,14 @@ TestFX alternatifi (Monocle, xvfb'siz):
 `-Dtestfx.headless=true -Dglass.platform=Monocle -Dmonocle.platform=Headless
 -Dprism.order=sw` — ancak screenshot güvenilirliği için `xvfb-run` önerilir.
 
+## TestFX MCP Server — JavaFX'i AI agent'ıyla sürme
+
+`mcp/testfx-mcp/` altında bağımsız bir MCP sunucusu vardır: Claude Code /
+opencode gibi MCP destekleyen bir agent, JavaFX uygulamanızı **canlı** açıp
+inceleyebilir ve sürebilir (scene graph dökümü, tıklama, yazma, screenshot) —
+Playwright MCP'nin tarayıcı için yaptığının JavaFX karşılığı. Derleme ve
+bağlama adımları: [mcp/testfx-mcp/README.md](mcp/testfx-mcp/README.md).
+
 ### systemd servisi
 
 ```ini
@@ -209,4 +217,6 @@ python3 -m pytest tests/ -v
   kalanlar: `FailureArtifactHook`'un test projesine eklenmesi, vLLM/opencode
   kurulumu ve `agent` yapılandırması
 - **Faz 3:** RAG + agent ile yeni test üretimi; Mod B'ye opsiyonel
-  Playwright MCP eskalasyonu
+  Playwright MCP eskalasyonu — JavaFX tarafı için bağımsız
+  [TestFX MCP Server](mcp/testfx-mcp/README.md) hazır ✅ (Mod B'ye otomatik
+  bağlanması ileride)

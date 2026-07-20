@@ -6,3 +6,4 @@ data/
 *.db
 .pytest_cache/
 examples/fake-cucumber-sim/target/
+mcp/testfx-mcp/target/
