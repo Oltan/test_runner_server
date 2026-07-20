@@ -164,6 +164,15 @@ def create_app(config_path: str | None = None) -> FastAPI:
             heal["stages"] = []
         return heal
 
+    @app.get("/api/heals/{heal_id}/log", dependencies=[Depends(require_token)])
+    def get_heal_log(heal_id: str):
+        if app.state.db.get_heal(heal_id) is None:
+            raise HTTPException(404, "Heal denemesi bulunamadı")
+        log_path = app.state.heal_engine.heal_log_path(heal_id)
+        text = (log_path.read_text(encoding="utf-8", errors="replace")
+                if log_path.is_file() else "")
+        return PlainTextResponse(text)
+
     @app.post("/api/heals/{heal_id}/approve",
               dependencies=[Depends(require_token)])
     async def approve_heal(heal_id: str):

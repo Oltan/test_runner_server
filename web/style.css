@@ -101,15 +101,16 @@ td a { color: var(--blue); text-decoration: none; }
 .progress-failed { background: var(--red);   height: 100%; transition: width .3s; }
 .progress-label { font-size: 13px; color: var(--muted); margin-top: 6px; }
 
-#console {
+#console, .console-box {
   background: #0a0e12; border: 1px solid var(--border); border-radius: 10px;
   padding: 14px; height: 460px; overflow-y: auto;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12.5px; line-height: 1.55; white-space: pre-wrap;
   word-break: break-all; color: #b9c9d6;
 }
-#console .err { color: var(--red); }
-#console .ok  { color: var(--green); }
+.console-box { height: 320px; }
+#console .err, .console-box .err { color: var(--red); }
+#console .ok, .console-box .ok  { color: var(--green); }
 
 .banner {
   background: rgba(77,163,255,.1); border: 1px solid var(--blue);

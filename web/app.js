@@ -311,6 +311,25 @@ async function refreshHeal(healId) {
   try { heal = await api(`/api/heals/${encodeURIComponent(healId)}`); }
   catch (e) { return "error"; }
 
+  // canlı çıktı: agent + LLM + doğrulama komutlarının akan logu
+  try {
+    const res = await fetch(`/api/heals/${encodeURIComponent(healId)}/log`,
+                            { headers: { "X-Auth-Token": getToken() } });
+    if (res.ok) {
+      const text = await res.text();
+      if (text) {
+        document.getElementById("log-section").style.display = "";
+        const box = document.getElementById("heal-log");
+        if (box.textContent !== text) {
+          const atBottom =
+            box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+          box.textContent = text;
+          if (atBottom) box.scrollTop = box.scrollHeight;
+        }
+      }
+    }
+  } catch (e) { /* log alınamazsa sayfa yine çalışsın */ }
+
   document.getElementById("heal-title").textContent =
     `${heal.scenario} — Mod ${String(heal.mode || "").toUpperCase()}`;
   document.getElementById("heal-status").innerHTML = badge(heal.status);

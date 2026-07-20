@@ -16,6 +16,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -64,7 +66,47 @@ class HealEngine:
         self.db = db
         self.artifacts_dir = Path(config.data_dir) / "artifacts"
         self.worktrees_dir = Path(config.data_dir) / "worktrees"
+        self.logs_dir = Path(config.data_dir) / "logs"
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
         self._active_projects: set[str] = set()
+
+    def heal_log_path(self, heal_id: str) -> Path:
+        return self.logs_dir / f"heal-{heal_id}.log"
+
+    def _log(self, heal_id: str, text: str) -> None:
+        with open(self.heal_log_path(heal_id), "a", encoding="utf-8",
+                  errors="replace") as f:
+            f.write(text)
+
+    def _stream_cmd(self, heal_id: str, command: str, cwd: Path,
+                    env: dict, timeout: int) -> tuple[int, str]:
+        """Komutu çalıştırır, çıktısını satır satır heal log dosyasına akıtır
+        (arayüz bu dosyayı canlı gösterir). (exit_code, kuyruk) döner."""
+        self._log(heal_id, f"\n$ {command}\n")
+        proc = subprocess.Popen(command, shell=True, cwd=cwd, env=env,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                text=True, errors="replace")
+        timed_out = threading.Event()
+
+        def _kill():
+            timed_out.set()
+            proc.kill()
+        timer = threading.Timer(timeout, _kill)
+        timer.start()
+        tail: deque[str] = deque(maxlen=200)
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                self._log(heal_id, line)
+                tail.append(line)
+            returncode = proc.wait()
+        finally:
+            timer.cancel()
+        if timed_out.is_set():
+            raise HealError(f"Komut zaman aşımına uğradı ({timeout}s): "
+                            f"{command}")
+        return returncode, "".join(tail)[-1200:]
 
     # --- başlatma -------------------------------------------------------------
 
@@ -160,6 +202,9 @@ class HealEngine:
                 raise
 
         try:
+            self._log(heal_id, f"═══ Heal {heal_id} — senaryo: "
+                               f"{scenario_row['scenario']!r}, mod: "
+                               f"{mode.upper()} ═══\n")
             step("worktree", lambda: self._make_worktree(
                 repo_root, worktree, branch, heal_id))
             worktree_created = True
@@ -171,13 +216,13 @@ class HealEngine:
 
             if agent.compile_command:
                 step("derleme", lambda: self._run_verified(
-                    agent.compile_command, worktree, project, scenario_row,
-                    agent.command_timeout_s,
+                    heal_id, agent.compile_command, worktree, project,
+                    scenario_row, agent.command_timeout_s,
                     "Derleme başarısız — öneri geri çekildi"))
 
             step("senaryo doğrulama", lambda: self._run_verified(
-                agent.scenario_command, worktree, project, scenario_row,
-                agent.command_timeout_s,
+                heal_id, agent.scenario_command, worktree, project,
+                scenario_row, agent.command_timeout_s,
                 "Düzeltme sonrası senaryo hâlâ FAIL — öneri geri çekildi"))
 
             def finalize() -> str:
@@ -277,8 +322,11 @@ class HealEngine:
                 "file": str(target_file.relative_to(worktree)),
                 "code_excerpt": code_excerpt(target_file, loc_value),
             })
+            self._log(heal_id, f"\n=== LLM prompt'u ({agent.llm.model}, "
+                               f"{len(prompt)} karakter) ===\n{prompt}\n")
             content = chat_completion(agent.llm.base_url, agent.llm.model,
                                       prompt, agent.llm.api_key_env)
+            self._log(heal_id, f"\n=== LLM cevabı ===\n{content}\n")
             answer = extract_json_block(content)
             selector = str(answer.get("selector", "")).strip()
             selector_type = str(answer.get("selector_type", "")).strip()
@@ -335,19 +383,12 @@ class HealEngine:
                                      model=agent.agent_model or "",
                                      scenario=scenario_row["scenario"],
                                      python=f'"{sys.executable}"')
-            try:
-                result = subprocess.run(
-                    command, shell=True, cwd=worktree, env=env,
-                    capture_output=True, text=True,
-                    timeout=agent.command_timeout_s)
-            except subprocess.TimeoutExpired as exc:
-                raise HealError(f"Agent zaman aşımına uğradı "
-                                f"({agent.command_timeout_s}s)") from exc
-            tail = ((result.stdout or "") + (result.stderr or ""))[-1200:]
-            if result.returncode != 0:
+            returncode, tail = self._stream_cmd(
+                heal_id, command, worktree, env, agent.command_timeout_s)
+            if returncode != 0:
                 raise HealError(f"Agent hatayla çıktı "
-                                f"(exit {result.returncode}): {tail}")
-            return tail
+                                f"(exit {returncode}): {tail[-600:]}")
+            return tail[-600:]
         step("agent koşumu", run_agent)
         prompt_file.unlink(missing_ok=True)
 
@@ -365,22 +406,18 @@ class HealEngine:
 
     # --- ortak yardımcılar -----------------------------------------------------------
 
-    def _run_verified(self, command: str, worktree: Path,
+    def _run_verified(self, heal_id: str, command: str, worktree: Path,
                       project: ProjectConfig, scenario_row: dict,
                       timeout: int, fail_message: str) -> str:
         env = {**os.environ, **project.env,
                "HEAL_SCENARIO": scenario_row["scenario"]}
         command = render_command(command, scenario=scenario_row["scenario"],
                                  python=f'"{sys.executable}"')
-        try:
-            result = subprocess.run(command, shell=True, cwd=worktree, env=env,
-                                    capture_output=True, text=True,
-                                    timeout=timeout)
-        except subprocess.TimeoutExpired as exc:
-            raise HealError(f"{fail_message} (zaman aşımı)") from exc
-        if result.returncode != 0:
-            tail = ((result.stdout or "") + (result.stderr or ""))[-1200:]
-            raise HealError(f"{fail_message} (exit {result.returncode}): {tail}")
+        returncode, tail = self._stream_cmd(heal_id, command, worktree,
+                                            env, timeout)
+        if returncode != 0:
+            raise HealError(f"{fail_message} (exit {returncode}): "
+                            f"{tail[-600:]}")
         return "geçti"
 
     def _artifacts_summary(self, run_id: str) -> str:
