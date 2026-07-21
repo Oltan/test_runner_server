@@ -39,19 +39,24 @@ class LLMConfig(BaseModel):
 
 
 class AgentConfig(BaseModel):
-    """Faz 2 healing ayarları (proje bazında)."""
+    """Faz 2 healing ayarları (proje bazında).
+
+    Mod B'de agent'ın endpoint/model bilgisiyle sunucu ilgilenmez — opencode
+    ve Claude Code zaten kendi kurulumlarında (opencode.json / claude
+    ayarları, ANTHROPIC_BASE_URL vb.) sizin endpoint'inize (ör.
+    https://api.sirketai.com.tr/v1) bağlıdır. Sunucu sadece o CLI'yı,
+    terminalden çağırdığınızla birebir aynı şekilde çalıştırır.
+    """
     llm: LLMConfig | None = None          # Mod A: tek çağrılık locator düzeltme
-    # Mod B agent'ı: hazır sağlayıcı seçin — sunucu doğru komutu kendisi kurar.
-    #   opencode | claude-code | aider | custom (custom → agent_command zorunlu)
-    provider: str = "custom"
-    agent_command: str | None = None      # provider: custom için tam komut.
-    # Komut worktree içinde shell ile koşar; şu env değişkenlerini alır:
-    #   HEAL_PROMPT_FILE (görev tanımı), HEAL_MODEL, HEAL_SCENARIO,
-    #   HEAL_AGENT_BIN/HEAL_AGENT_ARGS (başlatıcılar için, agent.env ile ezilebilir)
-    agent_model: str | None = None        # Mod B'ye HEAL_MODEL olarak geçer
+    # Mod B: hangi CLI çağrılacak — opencode | claude-code | custom
+    agent_cli: str = "opencode"
+    agent_command: str | None = None      # agent_cli: custom için tam komut
+                                          # (verilirse agent_cli'den önceliklidir)
+    agent_model: str | None = None        # opsiyonel model override (--model);
+                                          # boşsa CLI kendi varsayılanını kullanır
     env: dict[str, str] = Field(default_factory=dict)
-    # Agent'a özel ortam değişkenleri: OPENAI_API_BASE, ANTHROPIC_BASE_URL,
-    # HEAL_AGENT_BIN (tam yol), HEAL_AGENT_ARGS (ek CLI argümanları) vb.
+    # Agent süreç ortamına eklenir. Genelde gerekmez (CLI zaten yapılandırılı);
+    # binary PATH'te değilse HEAL_AGENT_BIN (tam yol) için kullanışlıdır.
     scenario_command: str                 # tek senaryoyu koşma (env: HEAL_SCENARIO)
     compile_command: str | None = None    # ör: mvn -B test-compile -q
     edit_whitelist: list[str] = Field(

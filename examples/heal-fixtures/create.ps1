@@ -156,7 +156,7 @@ Gercek vLLM'e gecerken base_url ve model'i degistirmeniz yeterli.
     results:
       cucumber_json: target/cucumber-report.json
     agent:
-      agent_command: "{python} fake_agent.py"     # sonra: aider/opencode komutu
+      agent_command: "{python} fake_agent.py"     # sonra kaldırıp: agent_cli: opencode
       agent_model: "mock-agent"                 # sonra: glm-5.2-fp8
       scenario_command: "{python} check.py"
       edit_whitelist:

@@ -47,33 +47,30 @@ projects:
   #     command: "mvn -B test -Dcucumber.features=@target/rerun.txt"
   #     rerun_file: target/rerun.txt
   #   agent:                                  # Faz 2: LLM healing
-  #     llm:                                  # Mod A (locator) — tek çağrı:
-  #       base_url: "http://vllm-sunucu:8000/v1"   # hızlı/ucuz model yeter
-  #       model: "qwen3.6-35b-a3b"
-  #       api_key_env: "LLM_API_KEY"          # anahtar bu env değişkeninden okunur
+  #     llm:                                  # Mod A (locator) — sunucu bu
+  #       # endpoint'e doğrudan tek bir chat completion isteği atar (agent
+  #       # yok, sadece HTTP çağrısı):
+  #       base_url: "https://api.sirketai.com.tr/v1"
+  #       model: "glm-5.2-fp8"                # şirket endpoint'inizdeki model adı
+  #       api_key_env: "SIRKETAI_API_KEY"     # anahtar bu env değişkeninden okunur
   #
-  #     # ---- Mod B agent'ı: provider seçin, komutu sunucu kendisi kurar ----
-  #     provider: opencode                    # opencode | claude-code | aider | custom
-  #     agent_model: "vllm/glm-5.2-fp8"       # opencode: opencode.json'daki provider adıyla
-  #     env:                                  # agent'a özel ortam değişkenleri
-  #       # HEAL_AGENT_BIN: "C:/Users/.../opencode.cmd"   # PATH'te değilse tam yol
-  #       # HEAL_AGENT_ARGS: "--ek-arguman"               # opsiyonel ek CLI argümanları
+  #     # ---- Mod B: hangi CLI çağrılacak — bu KADAR basit ----
+  #     # opencode ve Claude Code zaten kendi kurulumunuzda (opencode.json /
+  #     # claude ayarları) https://api.sirketai.com.tr/v1'e bağlı — sunucu bunu
+  #     # bilmez, bilmesi de gerekmez. Terminalde nasıl çalıştırıyorsanız
+  #     # sunucu da öyle çalıştırır.
+  #     agent_cli: opencode                   # opencode | claude-code | custom
+  #     # agent_model: "glm-5.2-fp8"           # opsiyonel: --model ile zorlar;
+  #                                           # vermezseniz CLI'nın kendi
+  #                                           # varsayılan modeli kullanılır
+  #     # env:
+  #     #   HEAL_AGENT_BIN: "C:/Users/.../opencode.cmd"  # PATH'te değilse tam yol
   #
-  #     # provider: claude-code için örnek (vLLM'in Anthropic-uyumlu endpoint'i ile):
-  #     #   provider: claude-code
-  #     #   agent_model: "glm-5.2-fp8"
-  #     #   env:
-  #     #     ANTHROPIC_BASE_URL: "http://vllm-sunucu:8000"
-  #     #     ANTHROPIC_AUTH_TOKEN: "dummy"
+  #     # agent_cli: claude-code seçerseniz aynen böyle — ekstra ayar gerekmez,
+  #     # Claude Code zaten kendi ANTHROPIC_BASE_URL / hesap ayarınızla çalışır:
+  #     #   agent_cli: claude-code
   #
-  #     # provider: aider için örnek (Windows'ta en pürüzsüz):
-  #     #   provider: aider
-  #     #   agent_model: "openai/glm-5.2-fp8"
-  #     #   env:
-  #     #     OPENAI_API_BASE: "http://vllm-sunucu:8000/v1"
-  #     #     OPENAI_API_KEY: "dummy"
-  #
-  #     # Tam kontrol isterseniz: provider: custom + agent_command
+  #     # Tam kontrol isterseniz: agent_cli: custom + agent_command
   #     # ({prompt_file}, {model}, {scenario}, {python} yer tutucuları kullanılabilir)
   #
   #     scenario_command: mvn -B test -Dcucumber.filter.name="{scenario}"

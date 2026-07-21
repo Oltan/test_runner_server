@@ -132,9 +132,9 @@ class HealEngine:
                     "mode='b' ile agent'a zorlayabilirsiniz.")
         if mode == "a" and agent.llm is None:
             raise HealError("Mod A için `agent.llm` yapılandırması gerekli.")
-        if mode == "b" and agent.provider == "custom" and not agent.agent_command:
+        if mode == "b" and agent.agent_cli == "custom" and not agent.agent_command:
             raise HealError(
-                "Mod B için `agent.provider` seçin (opencode/claude-code/aider)"
+                "Mod B için `agent.agent_cli` seçin (opencode/claude-code)"
                 " ya da `agent_command` yazın.")
 
         heal_id = uuid4().hex[:12]
@@ -375,9 +375,9 @@ class HealEngine:
                 "HEAL_MODEL": agent.agent_model or "",
                 "HEAL_SCENARIO": scenario_row["scenario"],
             }
-            # agent_command verilmişse o kazanır; yoksa provider'a göre
+            # agent_command verilmişse o kazanır; yoksa agent_cli'ye göre
             # hazır başlatıcı (agent/launchers/) kullanılır.
-            template = agent.agent_command or build_agent_command(agent.provider)
+            template = agent.agent_command or build_agent_command(agent.agent_cli)
             command = render_command(template,
                                      prompt_file=str(prompt_file),
                                      model=agent.agent_model or "",

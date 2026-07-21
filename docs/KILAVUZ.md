@@ -480,24 +480,31 @@ Script'in bastığı yaml bloğunu `projects.yaml`'a ekleyin (mock için
 4. **Onayla** → `cd /opt/projects/heal-fixtures/heal-fixture-a && git branch`
    → `heal/xxxx` branch'ini görmelisiniz; ana dizindeki dosya DEĞİŞMEMİŞ olmalı.
 
-**Adım 2 — Gerçek vLLM ile aynı test:**
+**Adım 2 — Gerçek endpoint ile aynı test:**
 
-Önce endpoint'i doğrulayın:
+Önce şirket endpoint'ini doğrulayın:
 
 ```bash
-curl http://VLLM-SUNUCU:8000/v1/models
-curl http://VLLM-SUNUCU:8000/v1/chat/completions -H "Content-Type: application/json" \
-  -d '{"model":"qwen3.6-35b-a3b","messages":[{"role":"user","content":"merhaba"}]}'
+curl https://api.sirketai.com.tr/v1/models \
+  -H "Authorization: Bearer $SIRKETAI_API_KEY"
+curl https://api.sirketai.com.tr/v1/chat/completions \
+  -H "Authorization: Bearer $SIRKETAI_API_KEY" -H "Content-Type: application/json" \
+  -d '{"model":"glm-5.2-fp8","messages":[{"role":"user","content":"merhaba"}]}'
 ```
 
-Sonra fixture config'inde `base_url`'i vLLM'e, `model`'i gerçek modele
-çevirin ve Adım 1'i tekrarlayın. Gerçek model de `//button[@id='submit-button-v2']`
-benzeri bir öneri üretmeli (fixture'daki DOM dump'ında doğru cevap var —
-model DOM'a bakmayı beceriyorsa bulur).
+Sonra fixture config'inde Mod A'nın `base_url`'ini `https://api.sirketai.com.tr/v1`,
+`model`'i gerçek model adına çevirin ve Adım 1'i tekrarlayın. Gerçek model de
+`//button[@id='submit-button-v2']` benzeri bir öneri üretmeli (fixture'daki
+DOM dump'ında doğru cevap var — model DOM'a bakmayı beceriyorsa bulur).
 
-**Adım 3 — Mod B (agent) testi:** `heal-b` fixture'ı sahte bir agent'la
-gelir (görev dosyasını okuyup kodu düzelten script). Bunu koşup akışı görün;
-sonra `agent_command`'ı gerçek agent'ınıza çevirip tekrarlayın (bkz. 7.3).
+**Adım 3 — Mod B (opencode/Claude Code) testi:** `heal-b` fixture'ı, gerçek
+CLI'nın davranışını taklit eden bir sahte agent'la gelir (görev dosyasını
+okuyup kodu düzelten script — `agent_cli` henüz ayarlı değildir). Önce bunu
+koşup akışı görün (worktree → agent koşumu → whitelist → doğrulama →
+proposed); sonra fixture config'ine `agent_cli: opencode` (veya
+`claude-code`) ekleyip `env.HEAL_AGENT_BIN` satırını kaldırarak gerçek
+CLI'nızla tekrarlayın (bkz. 7.3 — CLI zaten kendi ayarlarıyla
+`api.sirketai.com.tr`'ye bağlı olmalı, ekstra config gerekmez).
 
 > **KONTROL NOKTASI 4a:** Fixture'da hem Mod A hem Mod B "proposed"a
 > ulaşıyor ve onay/red branch davranışı doğruysa motor tarafı hazır.
@@ -544,31 +551,38 @@ public class TestContext {
 
 ### 7.3 Gerçek projede agent yapılandırması
 
-> **"opencode nerede çağrılıyor?"** Sunucuda gömülü bir opencode modülü
-> YOKTUR — bu bilinçli bir tasarım: Mod B'de sunucu, `agent_command`
-> satırınızı worktree içinde çalıştırır, o satır opencode/aider/başka bir
-> agent olabilir (kod: `server/healing/engine.py` → `_mod_b`). Sunucu
-> çalıştırmadan önce görev dosyasını (`HEAL_TASK.md`) worktree'ye yazar ve
-> `HEAL_PROMPT_FILE`, `HEAL_MODEL`, `HEAL_SCENARIO` env değişkenleri ile
-> `{prompt_file}`, `{model}`, `{scenario}` yer tutucularını sağlar; agent
-> bitince diff whitelist + doğrulama zinciri sunucuya geri döner. Fixture
-> testindeki `fake_agent.py` bu satırın taklit doldurmasıdır — gerçek
-> entegrasyon, o satırı gerçek agent komutuyla değiştirmekten ibarettir.
-> Altın kural: **agent komutunu önce sunucusuz, düz terminalde çalıştırıp
+> **"opencode/Claude Code nerede çağrılıyor?"** Sunucu, o CLI'yı **aynen
+> siz terminalden başlatmışsınız gibi** bir subprocess olarak çalıştırır —
+> gömülü bir entegrasyon yok, aradan geçen bir kütüphane yok. Kod:
+> `server/healing/engine.py` → `_mod_b` → `agent/launchers/opencode.py`
+> (ya da `claude_code.py`). Sunucunun tek işi: worktree'ye görev dosyasını
+> (`HEAL_TASK.md`) yazmak, cwd'yi o worktree yapmak ve komutu çalıştırmak;
+> agent bitince diff whitelist + doğrulama zinciri devreye girer.
+>
+> **Endpoint/model bilgisiyle sunucu hiç ilgilenmez.** opencode ve Claude
+> Code zaten kendi kurulumunuzda şirketinizin endpoint'ine
+> (`https://api.sirketai.com.tr/v1`) bağlı — bu bağlantı `opencode.json`
+> içinde veya Claude Code'un kendi ayarlarında/env değişkenlerinde
+> tanımlıdır, **`projects.yaml`'a hiçbir şey yazmanıza gerek yok.** Siz
+> sadece hangi CLI'yı çağıracağını söylersiniz.
+>
+> Altın kural: **CLI'yı önce sunucusuz, düz terminalde çalıştırıp
 > doğrulayın** — terminalde çalışmayan komut sunucudan da çalışmaz.
 
-Projenizin `projects.yaml` girdisine ekleyin:
+Projenizin `projects.yaml` girdisine ekleyin — bu kadar:
 
 ```yaml
     agent:
       llm:                                   # Mod A — locator düzeltme
-        base_url: "http://VLLM-SUNUCU:8000/v1"
-        model: "qwen3.6-35b-a3b"
-        # api_key_env: "LLM_API_KEY"         # endpoint anahtar istiyorsa
-      provider: opencode                     # Mod B — opencode | claude-code | aider | custom
-      agent_model: "vllm/glm-5.2-fp8"
-      # env:
-      #   HEAL_AGENT_BIN: "C:/.../opencode.cmd"  # binary PATH'te değilse tam yol
+        # Bu, agent DEĞİL: sunucunun tek atımlık HTTP çağrısı attığı endpoint.
+        base_url: "https://api.sirketai.com.tr/v1"
+        model: "glm-5.2-fp8"                 # şirket endpoint'inizdeki model adı
+        api_key_env: "SIRKETAI_API_KEY"      # anahtar bu env değişkeninden okunur
+
+      agent_cli: opencode                    # Mod B — opencode | claude-code | custom
+      # agent_model: "glm-5.2-fp8"           # opsiyonel: --model ile zorlar;
+                                             # vermezseniz CLI'nın kendi
+                                             # varsayılan modelini kullanır
       scenario_command: mvn -B test -Dcucumber.filter.name="{scenario}"
       compile_command: "mvn -B test-compile -q"
       edit_whitelist:
@@ -576,47 +590,38 @@ Projenizin `projects.yaml` girdisine ekleyin:
         - src/test/java/stepdefinitions/
 ```
 
-Önemli ayrıntılar:
+`agent_cli` tam olarak ne çalıştırır:
+
+| `agent_cli` | Sunucunun çalıştırdığı komut | Endpoint/model nereden geliyor |
+|---|---|---|
+| `opencode` | `opencode run "<görev>"` (`agent_model` verildiyse `--model <değer>` ile) | test reponuzdaki `opencode.json` — sizin kurduğunuz |
+| `claude-code` | `claude -p "<görev>" --permission-mode acceptEdits --allowedTools ...` (`agent_model` verildiyse `--model <değer>` ile) | Claude Code'un kendi ayarları/env değişkenleri — sizin kurduğunuz |
+| `custom` | `agent_command` satırınızı aynen | tam kontrol sizde |
+
+**Önce sunucusuz doğrulama** (kurulumunuzun gerçekten çalıştığından emin olun):
+
+```bash
+cd /opt/projects/web-otomasyon      # test reponuzun içinde
+opencode run "Bu repoda pages/ altında hangi sınıflar var?"
+# veya:
+claude -p "Bu repoda pages/ altında hangi sınıflar var?" --permission-mode acceptEdits
+```
+
+Cevap doğru geliyorsa (yani CLI zaten `api.sirketai.com.tr`'ye bağlıysa)
+`projects.yaml`'da sadece `agent_cli: opencode` (veya `claude-code`) yazmanız
+yeterli — başka hiçbir ayar gerekmez.
+
+Diğer ayrıntılar:
 
 - **Proje git deposu olmalı** ve `target/` `.gitignore`'da olmalı (yoksa
   Mod B'nin whitelist kontrolü build çıktılarını ihlal sanır).
-- **Yer tutucular:** `{scenario}`, `{prompt_file}`, `{model}` komut
-  çalıştırılmadan önce sunucu tarafından doldurulur — **shell'den
-  bağımsızdır, Windows'ta da Linux'ta da aynen çalışır.** (Alternatif
-  olarak `HEAL_SCENARIO`, `HEAL_PROMPT_FILE`, `HEAL_MODEL` ortam
-  değişkenleri de set edilir; ama bunların sözdizimi platforma göre
-  değişir: bash `$HEAL_SCENARIO`, cmd `%HEAL_SCENARIO%`. Taşınabilirlik
-  için yer tutucuları tercih edin.)
-- **Hazır agent sağlayıcıları (`provider`):** Komut satırı yazmanız gerekmez —
-  `provider` seçin, sunucu doğru başlatıcıyı (`agent/launchers/*.py`, Python
-  tabanlı = her platformda aynı) kendisi çalıştırır:
-
-  | provider | Ne çalıştırır | Gerekli ek kurulum |
-  |---|---|---|
-  | `opencode` | `opencode run --model <agent_model> "<görev>"` | opencode kurulu + test reponuzda `opencode.json` (aşağıda); `agent_model` = `vllm/glm-5.2-fp8` gibi provider-önekli |
-  | `claude-code` | `claude -p "<görev>" --permission-mode acceptEdits --allowedTools ...` | Claude Code kurulu; kendi vLLM'iniz için `env:` ile `ANTHROPIC_BASE_URL` / `ANTHROPIC_AUTH_TOKEN` (Anthropic-uyumlu endpoint/router) |
-  | `aider` | `aider --yes-always --no-auto-commits --message-file <görev>` | aider kurulu; `env:` ile `OPENAI_API_BASE` / `OPENAI_API_KEY`; `agent_model` = `openai/glm-5.2-fp8` gibi |
-  | `custom` | `agent_command` satırınızı aynen | tam kontrol — `{prompt_file}`, `{model}`, `{scenario}`, `{python}` yer tutucuları kullanılabilir |
-
-  Ortak ayarlar (`agent.env` içinde): `HEAL_AGENT_BIN` = binary PATH'te
-  değilse tam yolu (Windows'ta sık gerekir, örn. `C:/Users/.../claude.cmd`);
-  `HEAL_AGENT_ARGS` = ek CLI argümanları; claude-code için `HEAL_ALLOWED_TOOLS`
-  ile izinli araç listesi ezilebilir.
-
-  opencode için test reponuzun köküne `opencode.json` (alanları kurduğunuz
-  sürümün dokümanıyla doğrulayın):
-
-```json
-{
-  "provider": {
-    "vllm": {
-      "npm": "@ai-sdk/openai-compatible",
-      "options": { "baseURL": "http://VLLM-SUNUCU:8000/v1" },
-      "models": { "glm-5.2-fp8": {}, "qwen3.5-397b-a17b": {} }
-    }
-  }
-}
-```
+- **Binary PATH'te değilse:** `agent.env` ile tam yolu verin, örn.
+  `env: { HEAL_AGENT_BIN: "C:/Users/.../opencode.cmd" }` (Windows'ta sık
+  gerekir). Ek CLI argümanı eklemek isterseniz `HEAL_AGENT_ARGS`; Claude
+  Code'un izinli araç listesini değiştirmek isterseniz `HEAL_ALLOWED_TOOLS`.
+- **Yer tutucular** (`custom` için): `{scenario}`, `{prompt_file}`, `{model}`,
+  `{python}` komut çalıştırılmadan önce sunucu tarafından doldurulur —
+  shell'den bağımsızdır, Windows'ta da Linux'ta da aynen çalışır.
 
 ### 7.4 Healing'i kullanma (günlük akış)
 
@@ -767,10 +772,10 @@ Mevcut filonuzla önerilen dağılım:
 | Mod B (agent) | `glm-5.2-fp8` | Agentic tarafı güçlü; 128k context yeterli çünkü pipeline görevi ~20-50k token'da paketler |
 | Mod B eskalasyon + Faz 3 | `qwen3.5-397b-a17b` | İnatçı hatalar ve 256k context gerektiren test üretimi |
 
-Agent seçimi (opencode / aider / Claude Code+vLLM-uyumlu endpoint):
-`agent_command` tek satır olduğundan üçünü de `heal-b` fixture'ıyla A/B test
-edip kazananı yazın. Hangisini seçerseniz seçin diff whitelist + insan onayı
-korumaları aynıdır.
+Agent CLI seçimi (opencode / Claude Code): `agent_cli` tek alan olduğundan
+ikisini de `heal-b` fixture'ıyla A/B test edip kazananı yazın (bkz. 7.1).
+Hangisini seçerseniz seçin diff whitelist + insan onayı korumaları aynıdır —
+CLI değişse de motor davranışı değişmez.
 
 ---
 
