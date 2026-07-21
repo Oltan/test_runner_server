@@ -736,7 +736,8 @@ olaylar: `{"type":"backlog"|"log"|"progress"|"finished"}`.
 | Belirti | Çözüm |
 |---|---|
 | "Bu projede agent yapılandırması yok" | `projects.yaml`'a `agent:` bloğu ekleyip servisi yeniden başlatın |
-| "Proje bir git deposu değil" | Healing worktree ister → proje dizini `git init` + commit'li olmalı |
+| "Proje bir git deposu değil" | Test projesinin kendi `.git`'i yok → o proje dizininde `cd <path> && git init && git add -A && git commit -m init` |
+| "başka bir reponun alt klasörü olarak görünüyor" | Test projenizi test_runner_server'ın (veya başka bir reponun) klasör ağacının İÇİNE koymuşsunuz ve kendi `.git`'i yok — git üst dizine bakıp yanlış reponun altında sanıyor. Test projesini test_runner_server'ın dışına, ayrı bir klasöre taşıyın (veya kendi `.git`'ini oluşturun) |
 | "Hata artefaktı bulunamadı" | `FailureArtifactHook` projede değil/çalışmıyor → 7.2'deki lokal doğrulamayı yapın; hook'un `@After` order'ı driver.quit'ten önce mi? |
 | "Hata mesajından locator çıkarılamadı" | Hata Selenium'un standart biçiminde değil → heal'i `mode:"b"` ile agent'a zorlayın |
 | "Locator kod içinde bulunamadı" | Locator kodda string birleştirmeyle üretiliyor olabilir (dinamik XPath) → bu sınıf otomatik patch'lenemez, elle düzeltin |

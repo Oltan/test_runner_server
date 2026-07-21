@@ -27,11 +27,34 @@ def is_git_repo(path: Path) -> bool:
     return result.returncode == 0
 
 
+def _git_toplevel(path: Path) -> Path | None:
+    """`path`'in ait olduğu git reposunun kök dizini (üst dizinlere doğru
+    arar — git'in kendi davranışı). Repo değilse None."""
+    result = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path,
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        return None
+    return Path(result.stdout.strip()).resolve()
+
+
 def create_worktree(repo_root: Path, dest: Path, branch: str) -> None:
-    if not is_git_repo(repo_root):
+    repo_root = repo_root.resolve()
+    toplevel = _git_toplevel(repo_root)
+    if toplevel is None:
         raise HealError(
             f"Proje bir git deposu değil: {repo_root} — healing için proje "
-            "git ile versiyonlanmış olmalı.")
+            "kendi git deposu olmalı: proje dizininde `git init` yapıp en "
+            "az bir commit atın.")
+    if toplevel != repo_root:
+        # git üst dizinlerde ARAR; proje kendi .git'ine sahip değilse başka
+        # bir reponun (genelde test_runner_server'ın) alt klasörü sanılır.
+        # Bunu sessizce yanlış reponun worktree'sini açmak yerine erken
+        # ve net biçimde reddediyoruz.
+        raise HealError(
+            f"Proje kendi git deposu değil — {toplevel} reposunun bir alt "
+            f"klasörü olarak görünüyor ({repo_root}). Test projenizi "
+            "bağımsız bir git deposu yapın (kendi .git'i olsun) ve "
+            "test_runner_server'ın klasör ağacının DIŞINDA tutun.")
     dest.parent.mkdir(parents=True, exist_ok=True)
     _git(repo_root, "worktree", "add", "-b", branch, str(dest), "HEAD")
 
