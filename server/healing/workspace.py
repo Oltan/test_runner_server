@@ -79,6 +79,9 @@ def commit(worktree: Path, message: str) -> None:
 
 def cleanup(repo_root: Path, dest: Path, branch: str,
             keep_branch: bool) -> None:
+    # create_worktree'deki aynı gerekçe: relatif dest, cwd=repo_root olan bu
+    # alt süreçte YANLIŞ yere göre çözülür ve worktree sessizce silinmez.
+    dest = dest.resolve()
     subprocess.run(["git", "worktree", "remove", "--force", str(dest)],
                    cwd=repo_root, capture_output=True, text=True,
                    encoding="utf-8", errors="replace")
