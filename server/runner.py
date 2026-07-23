@@ -111,7 +111,11 @@ class RunManager:
         process = await asyncio.create_subprocess_shell(
             command,
             cwd=str(cwd),
-            env={**os.environ, **project.env},
+            # PYTHONUTF8: Windows'ta pipe'a yazan alt süreçler varsayılan
+            # olarak ANSI kod sayfasını (örn. cp1252) kullanır ve Türkçe
+            # karakter basan komutlar UnicodeEncodeError ile çöker.
+            env={"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
+                 **os.environ, **project.env},
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.STDOUT,
             limit=_LINE_LIMIT,

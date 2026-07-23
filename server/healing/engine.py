@@ -107,7 +107,8 @@ class HealEngine:
                                 cwd=cwd, env=env,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT,
-                                text=True, errors="replace")
+                                text=True, encoding="utf-8",
+                                errors="replace")
         timed_out = threading.Event()
 
         def _kill():
@@ -195,7 +196,10 @@ class HealEngine:
         agent = project.agent
         assert agent is not None
         stages: list[dict] = []
-        worktree = self.worktrees_dir / heal_id
+        # Mutlak: agent alt süreçleri worktree'nin İÇİNDE cwd ile çalışır —
+        # relatif kalsaydı, worktree'ye relatif bir dosya yolu (HEAL_PROMPT_FILE
+        # gibi) o alt sürecin cwd'sine göre YENİDEN çözülür ve yol ikiye katlanırdı.
+        worktree = (self.worktrees_dir / heal_id).resolve()
         branch = f"heal/{heal_id}"
         repo_root = Path(project.path).resolve()
         worktree_created = False
@@ -351,6 +355,7 @@ class HealEngine:
 
         def run_agent() -> str:
             env = {
+                "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
                 **os.environ, **project.env, **agent.env,
                 "HEAL_PROMPT_FILE": str(prompt_file),
                 "HEAL_MODEL": agent.agent_model or "",
@@ -400,7 +405,8 @@ class HealEngine:
     def _run_verified(self, heal_id: str, command: str, worktree: Path,
                       project: ProjectConfig, scenario_row: dict,
                       timeout: int, fail_message: str) -> str:
-        env = {**os.environ, **project.env,
+        env = {"PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
+               **os.environ, **project.env,
                "HEAL_SCENARIO": scenario_row["scenario"]}
         command = render_command(command, scenario=scenario_row["scenario"],
                                  python=f'"{sys.executable}"')

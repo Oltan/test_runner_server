@@ -16,7 +16,8 @@ def changed_paths(worktree: Path) -> list[str]:
     # -uall: untracked dosyaları dizin olarak toplamadan tek tek listele
     result = subprocess.run(
         ["git", "status", "--porcelain", "-uall"], cwd=worktree,
-        capture_output=True, text=True, check=True)
+        capture_output=True, text=True, check=True,
+        encoding="utf-8", errors="replace")
     paths = []
     for line in result.stdout.splitlines():
         entry = line[3:].strip()

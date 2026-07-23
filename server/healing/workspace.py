@@ -14,7 +14,8 @@ _GIT_IDENT = ["-c", "user.name=test-runner-heal",
 
 def _git(cwd: Path, *args: str) -> str:
     result = subprocess.run(["git", *_GIT_IDENT, *args], cwd=cwd,
-                            capture_output=True, text=True)
+                            capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
     if result.returncode != 0:
         raise HealError(f"git {' '.join(args[:2])} başarısız: "
                         f"{result.stderr.strip()[:500]}")
@@ -23,7 +24,8 @@ def _git(cwd: Path, *args: str) -> str:
 
 def is_git_repo(path: Path) -> bool:
     result = subprocess.run(["git", "rev-parse", "--git-dir"], cwd=path,
-                            capture_output=True, text=True)
+                            capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
     return result.returncode == 0
 
 
@@ -31,7 +33,8 @@ def _git_toplevel(path: Path) -> Path | None:
     """`path`'in ait olduğu git reposunun kök dizini (üst dizinlere doğru
     arar — git'in kendi davranışı). Repo değilse None."""
     result = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=path,
-                            capture_output=True, text=True)
+                            capture_output=True, text=True,
+                            encoding="utf-8", errors="replace")
     if result.returncode != 0:
         return None
     return Path(result.stdout.strip()).resolve()
@@ -39,6 +42,11 @@ def _git_toplevel(path: Path) -> Path | None:
 
 def create_worktree(repo_root: Path, dest: Path, branch: str) -> None:
     repo_root = repo_root.resolve()
+    # dest MUTLAKA mutlak olmalı: git worktree add, cwd=repo_root ile
+    # çalışır ve relatif dest'i kendi cwd'sine göre çözer — server'ın
+    # kendi cwd'sine göre relatif verilirse worktree yanlış yere (repo_root
+    # altına) yazılır ve sonraki adımlar dosyayı "olmayan" yerde arar.
+    dest = dest.resolve()
     toplevel = _git_toplevel(repo_root)
     if toplevel is None:
         raise HealError(
@@ -72,7 +80,9 @@ def commit(worktree: Path, message: str) -> None:
 def cleanup(repo_root: Path, dest: Path, branch: str,
             keep_branch: bool) -> None:
     subprocess.run(["git", "worktree", "remove", "--force", str(dest)],
-                   cwd=repo_root, capture_output=True, text=True)
+                   cwd=repo_root, capture_output=True, text=True,
+                   encoding="utf-8", errors="replace")
     if not keep_branch:
         subprocess.run(["git", "branch", "-D", branch],
-                       cwd=repo_root, capture_output=True, text=True)
+                       cwd=repo_root, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
