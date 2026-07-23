@@ -89,36 +89,39 @@ dosya üzerinden):
 ## AI ile düzeltme — healing (Faz 2)
 
 Deterministik FAIL eden senaryolar için koşum sayfasında **🩹 AI ile düzelt**
-düğmesi çıkar. Hata sınıfına göre iki mod:
-
-| | Mod A — locator kırılması | Mod B — assertion/akış hatası |
-|---|---|---|
-| Tetik | `NoSuchElementException`, `TimeoutException`… | `AssertionError`… |
-| Yöntem | Agent yok: DOM budanır, LLM'e **tek soru** sorulur, cevap deterministik patch'lenir | Coding agent (opencode) dar görevle çalışır |
-| Model | `agent.llm` (ör. Qwen3.6-32B) | `agent.agent_model` (ör. Qwen3.5-392B) |
+düğmesi çıkar. Her hata sınıfı (locator kırılması, assertion/mantık hatası)
+**aynı coding agent'a** (opencode veya Claude Code — `agent_cli` ile
+seçilir) gider; agent repoya tam erişimle dosyayı bulur, hatayı anlar,
+düzeltmeyi kendisi yapar. Sunucu kendi başına regex/JSON/literal-patch
+uğraşmaz — hata sınıfı sadece agent'a verilen görev metnindeki bağlamı
+belirler (locator için budanmış DOM özeti + kırılan seçici; diğerleri için
+hata + artefakt özeti).
 
 Her deneme **izole git worktree'de, kendi `heal/<id>` branch'inde** yapılır:
 
 ```
-sınıflandır → worktree aç → düzelt (A: patch / B: agent) →
-[B: diff whitelist kontrolü — dışarı dokunduysa RED] →
+sınıflandır (infra → insana işaretle) → worktree aç → görev metnini yaz →
+agent'ı çalıştır (opencode/Claude Code — terminalde çalıştırdığınızla
+birebir aynı argv) → diff whitelist kontrolü — dışarı dokunduysa RED →
 (compile) → senaryoyu yeniden koş → diff'i arayüzde göster →
 İNSAN ONAYI → branch kalır (merge/push size ait) | red → branch silinir
 ```
 
 Güvenlik garantileri:
 - Canlı test koşumlarının kullandığı dizine asla dokunulmaz (worktree izolasyonu).
-- Mod A'da locator kodda birden çok yerde geçiyorsa otomatik patch yapılmaz
-  (`needs_human`).
-- Mod B'de agent `edit_whitelist` dışına dokunursa öneri otomatik reddedilir.
-- Hiçbir mod push/merge yapmaz; onaylanan düzeltme sadece branch olarak kalır.
+- Agent `edit_whitelist` dışına dokunursa öneri otomatik reddedilir.
+- Agent push/merge yapmaz; onaylanan düzeltme sadece branch olarak kalır.
+- Canlı heal logunda görünen komut, agent'ın fiilen çalıştığı komuttur —
+  gizli bir sarmalayıcı yok.
 
 Gereksinimler: test projesi **git deposu** olmalı ve build çıktıları
 (`target/` vb.) `.gitignore`'da olmalı; hata artefaktları için
-`examples/java-templates/FailureArtifactHook.java` projeye eklenmiş olmalı.
-LLM tarafı OpenAI-uyumlu herhangi bir endpoint'tir (vLLM, Ollama…) —
-yapılandırma örneği `projects.yaml` içindeki yorumlu bloktadır. Agent
-prompt şablonları `agent/prompts/` altındadır, ihtiyaca göre düzenlenebilir.
+`examples/java-templates/FailureArtifactHook.java` projeye eklenmiş olması
+önerilir (locator düzeltmelerinde agent'a DOM bağlamı sağlar). opencode/
+Claude Code kendi kurulumunuzda LLM endpoint'inize zaten bağlıdır — sunucu
+bunu bilmez; yapılandırma örneği `projects.yaml` içindeki yorumlu bloktadır.
+Agent prompt şablonları `agent/prompts/` altındadır, ihtiyaca göre
+düzenlenebilir.
 
 ## VM kurulumu
 
@@ -203,10 +206,10 @@ python3 -m pytest tests/ -v
 
 - **Faz 1:** runner + web arayüzü + canlı ilerleme + koşum geçmişi ✅
 - **Faz 1.6:** retry + flaky işaretleme ✅
-- **Faz 2 (sunucu tarafı):** LLM healing — Mod A (locator: budanmış DOM +
-  tek LLM çağrısı + deterministik patch) ve Mod B (opencode; worktree
-  izolasyonu + diff whitelist + insan onayı) ✅ — kullanıcı tarafında
-  kalanlar: `FailureArtifactHook`'un test projesine eklenmesi, vLLM/opencode
+- **Faz 2 (sunucu tarafı):** LLM healing — tek agent akışı (opencode/Claude
+  Code, worktree izolasyonu + diff whitelist + insan onayı); hata sınıfı
+  sadece görev şablonunu seçer ✅ — kullanıcı tarafında kalanlar:
+  `FailureArtifactHook`'un test projesine eklenmesi, opencode/Claude Code
   kurulumu ve `agent` yapılandırması
-- **Faz 3:** RAG + agent ile yeni test üretimi; Mod B'ye opsiyonel
-  Playwright MCP eskalasyonu
+- **Faz 3:** RAG + agent ile yeni test üretimi; opsiyonel Playwright MCP
+  eskalasyonu

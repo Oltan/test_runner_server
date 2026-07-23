@@ -1,13 +1,18 @@
 """Heal denemesi orkestrasyonu.
 
-Akış (her ikisi de izole git worktree + kendi branch'inde):
-  Mod A: locator çıkar → PO dosyasını bul → DOM buda → tek LLM çağrısı →
-         deterministik patch → (compile) → senaryoyu yeniden koş → diff öner
-  Mod B: görev dosyası yaz → coding agent'ı çalıştır → diff whitelist
-         kontrolü → (compile) → senaryoyu yeniden koş → diff öner
+Tek akış (izole git worktree + kendi branch'inde): sınıflandır → görev
+metnini hazırla (locator sınıfı için DOM özeti + kırılan seçici; diğerleri
+için hata + artefakt özeti) → coding agent'ı (opencode/Claude Code) çalıştır
+→ diff whitelist kontrolü → (compile) → senaryoyu yeniden koş → diff öner.
 
-Hiçbir mod kendi kendine push/merge yapmaz; sonuç "proposed" olarak insan
-onayına sunulur (approve → branch kalır, reject → branch silinir).
+Kod düzenlemeyi agent yapar — sunucu kendi regex/JSON/literal-patch
+mekanizmasıyla uğraşmaz. Bu yüzden locator kırılmaları da dahil HER hata
+sınıfı aynı yoldan geçer; sınıflandırma sadece hangi prompt şablonunun
+kullanılacağını seçer (ve "infra" sınıfını insan incelemesine ayırır —
+tarayıcı/ortam sorunları LLM ile çözülmez).
+
+Hiçbir agent kendi kendine push/merge yapmaz; sonuç "proposed" olarak
+insan onayına sunulur (approve → branch kalır, reject → branch silinir).
 """
 from __future__ import annotations
 
@@ -29,9 +34,8 @@ from ..db import Database
 from .agents import build_agent_argv
 from .classify import classify
 from .domprune import prune_dom
-from .llm import chat_completion, extract_json_block
-from .locator import code_excerpt, extract_locator, find_occurrences
-from .patch import apply_single_literal_patch, changed_paths, whitelist_violations
+from .locator import extract_locator, find_occurrences
+from .patch import changed_paths, whitelist_violations
 from .workspace import cleanup, commit, create_worktree, stage_and_diff
 
 _PROMPTS_DIR = Path(__file__).resolve().parent.parent.parent / "agent" / "prompts"
@@ -136,39 +140,32 @@ class HealEngine:
             raise HealBusy(project.id)
 
         failure_class = classify(scenario_row.get("error_message"))
-        mode = mode.lower()
-        if mode == "auto":
-            if failure_class == "locator":
-                mode = "a"
-            elif failure_class == "logic":
-                mode = "b"
-            else:
-                raise HealError(
-                    f"Hata sınıfı '{failure_class}' otomatik düzeltmeye uygun "
-                    "değil (infra/unknown → insan incelemesi). İsterseniz "
-                    "mode='b' ile agent'a zorlayabilirsiniz.")
-        if mode == "a" and agent.llm is None:
-            raise HealError("Mod A için `agent.llm` yapılandırması gerekli.")
-        if mode == "b" and agent.agent_cli == "custom" and not agent.agent_command:
+        force = mode.lower() == "force"
+        if failure_class == "infra" and not force:
             raise HealError(
-                "Mod B için `agent.agent_cli` seçin (opencode/claude-code)"
-                " ya da `agent_command` yazın.")
+                "Hata sınıfı 'infra' — bu genelde ortam/bağlantı sorunudur "
+                "(ör. tarayıcı başlatılamadı), LLM ile düzeltilemez. İnsan "
+                "incelemesi gerekir. Yine de denemek isterseniz "
+                "mode='force' kullanın (önerilmez).")
+        if agent.agent_cli == "custom" and not agent.agent_command:
+            raise HealError(
+                "`agent.agent_cli` seçin (opencode/claude-code) ya da "
+                "`agent_command` yazın.")
 
         heal_id = uuid4().hex[:12]
-        model = (agent.llm.model if mode == "a" and agent.llm
-                 else agent.agent_model)
         self.db.create_heal(heal_id, run["id"], project.id,
-                            scenario_row["scenario"], failure_class, mode, model)
+                            scenario_row["scenario"], failure_class,
+                            agent.agent_cli, agent.agent_model)
         self._active_projects.add(project.id)
         asyncio.create_task(self._execute(heal_id, project, run,
-                                          scenario_row, mode))
+                                          scenario_row, failure_class))
         return heal_id
 
     async def _execute(self, heal_id: str, project: ProjectConfig, run: dict,
-                       scenario_row: dict, mode: str) -> None:
+                       scenario_row: dict, failure_class: str) -> None:
         try:
             await asyncio.to_thread(self._pipeline, heal_id, project, run,
-                                    scenario_row, mode)
+                                    scenario_row, failure_class)
         finally:
             self._active_projects.discard(project.id)
 
@@ -194,7 +191,7 @@ class HealEngine:
     # --- pipeline (worker thread'de koşar) ----------------------------------------
 
     def _pipeline(self, heal_id: str, project: ProjectConfig, run: dict,
-                  scenario_row: dict, mode: str) -> None:
+                  scenario_row: dict, failure_class: str) -> None:
         agent = project.agent
         assert agent is not None
         stages: list[dict] = []
@@ -220,16 +217,15 @@ class HealEngine:
 
         try:
             self._log(heal_id, f"═══ Heal {heal_id} — senaryo: "
-                               f"{scenario_row['scenario']!r}, mod: "
-                               f"{mode.upper()} ═══\n")
+                               f"{scenario_row['scenario']!r}, sınıf: "
+                               f"{failure_class}, agent: {agent.agent_cli} "
+                               f"═══\n")
             step("worktree", lambda: self._make_worktree(
                 repo_root, worktree, branch, heal_id))
             worktree_created = True
 
-            if mode == "a":
-                self._mod_a(step, heal_id, project, run, scenario_row, worktree)
-            else:
-                self._mod_b(step, heal_id, project, run, scenario_row, worktree)
+            self._fix_with_agent(step, heal_id, project, run, scenario_row,
+                                 worktree, failure_class)
 
             if agent.compile_command:
                 step("derleme", lambda: self._run_verified(
@@ -280,114 +276,84 @@ class HealEngine:
         self.db.update_heal(heal_id, branch=branch, worktree=str(worktree))
         return f"branch {branch}"
 
-    # --- Mod A -------------------------------------------------------------------
+    # --- görev metni hazırlama --------------------------------------------------------
 
-    def _mod_a(self, step, heal_id: str, project: ProjectConfig, run: dict,
-               scenario_row: dict, worktree: Path) -> None:
-        agent = project.agent
+    def _locator_prompt(self, run: dict, scenario_row: dict,
+                        worktree: Path, agent) -> str:
+        """Locator sınıfı için: kırılan seçici + budanmış DOM + (varsa)
+        muhtemel dosya ipucu. Hiçbiri bulunamasa da agent repoyu kendisi
+        arayabilir — bunlar zorunlu değil, sadece hızlandırıcı bağlam."""
         error_message = scenario_row.get("error_message") or ""
-        ctx: dict = {}  # aşamalar arası taşınan değerler (thread-yerel)
+        located = extract_locator(error_message)
+        locator_line = ("(hata mesajından belirli bir seçici çıkarılamadı — "
+                        "hata mesajının tamamına bakın)")
+        hint_file = "(otomatik bulunamadı — repo içinde arayın)"
+        dom_context = ("(DOM dump'ı bulunamadı — hata anında yakalanmamış "
+                       "olabilir; sayfayı/kodu kendin incele)")
 
-        def do_extract() -> str:
-            located = extract_locator(error_message)
-            if located is None:
-                raise HealError("Hata mesajından locator çıkarılamadı: "
-                                + error_message[:200])
-            ctx["loc_type"], ctx["loc_value"] = located
-            return f"{located[0]}: {located[1]}"
-        step("locator çıkarımı", do_extract)
-        loc_type, loc_value = ctx["loc_type"], ctx["loc_value"]
+        if located:
+            loc_type, loc_value = located
+            locator_line = f"{loc_type}: {loc_value}"
+            try:
+                hits = find_occurrences(worktree, agent.edit_whitelist, loc_value)
+                if hits:
+                    hint_file = str(hits[0][0].relative_to(worktree))
+            except OSError:
+                pass
 
-        def find_code() -> str:
-            hits = find_occurrences(worktree, agent.edit_whitelist, loc_value)
-            if not hits:
-                raise HealError(
-                    f"Locator kod içinde bulunamadı: {loc_value!r} "
-                    f"(dizinler: {agent.edit_whitelist})")
-            ctx["target_file"] = hits[0][0]
-            return f"{hits[0][0].relative_to(worktree)} (+{len(hits) - 1} dosya)"
-        step("kod eşleşmesi", find_code)
-        target_file = ctx["target_file"]
-
-        def build_candidates() -> str:
             run_artifacts = self.artifacts_dir / run["id"]
-            html_files = sorted(run_artifacts.rglob("*.html"))[:4]
-            if not html_files:
-                raise HealError(
-                    f"Hata artefaktı bulunamadı ({run_artifacts}) — test "
-                    "projesinde FailureArtifactHook kurulu mu?")
             blocks = []
-            for html_file in html_files:
+            for html_file in sorted(run_artifacts.rglob("*.html"))[:4]:
                 html = html_file.read_text(encoding="utf-8", errors="replace")
                 pruned = prune_dom(html, loc_value)
                 if pruned:
                     blocks.append(f"— {html_file.name} —\n{pruned}")
-            if not blocks:
-                raise HealError("DOM dump'larından aday element çıkarılamadı.")
-            return "\n\n".join(blocks)
-        candidates = step("DOM budama", build_candidates)
+            if blocks:
+                dom_context = "\n\n".join(blocks)
 
-        def call_llm() -> str:
-            template = (_PROMPTS_DIR / "fix_locator.md").read_text(
-                encoding="utf-8")
-            prompt = _fill(template, {
-                "scenario": scenario_row["scenario"],
-                "error_message": error_message[:1500],
-                "locator_type": loc_type,
-                "locator_value": loc_value,
-                "candidates": candidates,
-                "file": str(target_file.relative_to(worktree)),
-                "code_excerpt": code_excerpt(target_file, loc_value),
-            })
-            self._log(heal_id, f"\n=== LLM prompt'u ({agent.llm.model}, "
-                               f"{len(prompt)} karakter) ===\n{prompt}\n")
-            content = chat_completion(agent.llm.base_url, agent.llm.model,
-                                      prompt, agent.llm.api_key_env)
-            self._log(heal_id, f"\n=== LLM cevabı ===\n{content}\n")
-            answer = extract_json_block(content)
-            selector = str(answer.get("selector", "")).strip()
-            selector_type = str(answer.get("selector_type", "")).strip()
-            if not selector:
-                raise HealError(f"LLM boş seçici döndürdü: {content[:200]}")
-            if selector == loc_value:
-                raise HealError("LLM aynı (kırık) seçiciyi döndürdü.")
-            if selector_type and selector_type != loc_type:
-                raise HealError(
-                    f"LLM farklı seçici türü döndürdü ({selector_type}, "
-                    f"beklenen {loc_type}) — otomatik patch güvenli değil, "
-                    "insan onayı gerekir.")
-            ctx["new_selector"] = selector
-            return f"yeni seçici: {selector}"
-        step("LLM önerisi", call_llm)
+        template = (_PROMPTS_DIR / "fix_locator.md").read_text(encoding="utf-8")
+        return _fill(template, {
+            "scenario": scenario_row["scenario"],
+            "error_message": error_message[:2000],
+            "locator_line": locator_line,
+            "hint_file": hint_file,
+            "dom_context": dom_context,
+            "whitelist": ", ".join(agent.edit_whitelist),
+            "scenario_command": agent.scenario_command,
+        })
 
-        step("patch", lambda: str(apply_single_literal_patch(
-            worktree, agent.edit_whitelist, loc_value,
-            ctx["new_selector"]).relative_to(worktree)))
+    def _generic_prompt(self, run: dict, scenario_row: dict, agent) -> str:
+        template = (_PROMPTS_DIR / "fix_generic.md").read_text(encoding="utf-8")
+        return _fill(template, {
+            "scenario": scenario_row["scenario"],
+            "feature": scenario_row.get("feature") or "-",
+            "error_message": (scenario_row.get("error_message") or "")[:3000],
+            "artifacts_summary": self._artifacts_summary(run["id"]),
+            "whitelist": ", ".join(agent.edit_whitelist),
+            "scenario_command": agent.scenario_command,
+        })
 
-    # --- Mod B --------------------------------------------------------------------
+    # --- agent çalıştırma (tüm hata sınıfları için tek yol) ------------------------------
 
-    def _mod_b(self, step, heal_id: str, project: ProjectConfig, run: dict,
-               scenario_row: dict, worktree: Path) -> None:
+    def _fix_with_agent(self, step, heal_id: str, project: ProjectConfig,
+                        run: dict, scenario_row: dict, worktree: Path,
+                        failure_class: str) -> None:
         agent = project.agent
         prompt_file = worktree / "HEAL_TASK.md"
 
         def write_task() -> str:
-            template = (_PROMPTS_DIR / "fix_assertion.md").read_text(
-                encoding="utf-8")
-            prompt_file.write_text(_fill(template, {
-                "scenario": scenario_row["scenario"],
-                "feature": scenario_row.get("feature") or "-",
-                "error_message": (scenario_row.get("error_message") or "")[:3000],
-                "artifacts_summary": self._artifacts_summary(run["id"]),
-                "whitelist": ", ".join(agent.edit_whitelist),
-                "scenario_command": agent.scenario_command,
-            }), encoding="utf-8")
+            prompt = (self._locator_prompt(run, scenario_row, worktree, agent)
+                     if failure_class == "locator"
+                     else self._generic_prompt(run, scenario_row, agent))
+            prompt_file.write_text(prompt, encoding="utf-8")
             return prompt_file.name
         step("görev dosyası", write_task)
 
         def run_agent() -> str:
             env = {
                 **os.environ, **project.env, **agent.env,
+                "HEAL_PROMPT_FILE": str(prompt_file),
+                "HEAL_MODEL": agent.agent_model or "",
                 "HEAL_SCENARIO": scenario_row["scenario"],
             }
             if agent.agent_command:

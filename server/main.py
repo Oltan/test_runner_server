@@ -25,7 +25,7 @@ from .runner import RunAlreadyActive, RunManager
 
 class HealRequest(BaseModel):
     scenario: str
-    mode: str = "auto"  # auto | a | b
+    mode: str = "auto"  # auto (infra sınıfını reddeder) | force (yine de dene)
 
 _WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 

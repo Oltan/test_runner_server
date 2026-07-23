@@ -1,4 +1,4 @@
-"""Kurulu coding agent CLI'ları (Mod B).
+"""Kurulu coding agent CLI'ları.
 
 `projects.yaml` → agent.agent_cli ile seçilir. Sunucu, seçilen CLI'yı
 **terminalden çağrılmış gibi birebir** invoke eder: gerçek argv listesi

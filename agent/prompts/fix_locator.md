@@ -1,6 +1,10 @@
-Sen bir Selenium/TestFX test otomasyonu uzmanısın. Bir UI testindeki element
-seçicisi (locator) uygulama değiştiği için kırıldı. Görevin: hata anında
-yakalanan sayfa durumuna bakarak DOĞRU yeni seçiciyi üretmek.
+# Görev: Kırılan element seçicisini (locator) düzelt
+
+Bir UI testindeki element seçicisi (locator/XPath/CSS) uygulama değiştiği
+için kırıldı. Bu senaryo üst üste iki koşumda da FAIL etti (flaky değil,
+gerçek hata). Repoya tam erişimin var — dosyayı bul, hatayı anla, kodu
+doğrudan düzenle. **JSON veya belirli bir biçimde cevap döndürmene gerek
+yok**; görevin kaynak dosyayı düzeltmek.
 
 ## Başarısız senaryo
 {{scenario}}
@@ -10,25 +14,28 @@ yakalanan sayfa durumuna bakarak DOĞRU yeni seçiciyi üretmek.
 {{error_message}}
 ```
 
-## Kırılan seçici
-Tür: {{locator_type}}
-Değer: `{{locator_value}}`
+## Hata mesajından çıkarılan kırılan seçici (bulunabildiyse)
+{{locator_line}}
 
-## Hata anındaki sayfadan aday elementler
-(gerçek DOM dump'ından çıkarıldı; doğru element büyük olasılıkla bunlardan biri)
-{{candidates}}
+## Muhtemel dosya (otomatik arama sonucu — kesin değil, kendin de arayabilirsin)
+{{hint_file}}
 
-## Seçicinin geçtiği kod ({{file}})
-```java
-{{code_excerpt}}
+## Hata anındaki sayfadan aday elementler (gerçek DOM dump'ından, budanmış)
+{{dom_context}}
+
+## Kurallar (ihlal = öneri otomatik reddedilir)
+1. SADECE şu dizinlerdeki dosyaları düzenle: {{whitelist}}
+2. Feature (.feature) dosyalarını DEĞİŞTİRME — senaryo davranışı iş gereksinimidir.
+3. Kararlı nitelikleri tercih et: id > data-* > name > kısa CSS zinciri > XPath (son çare).
+4. Aday elementlerdeki GERÇEK nitelikleri kullan; nitelik uydurma.
+5. Düzeltme tek bir seçici satırından ibaret değilse (sayfa yapısı köklü
+   değişmiş, birden fazla yer güncellenmeli, yardımcı metot gerekiyor gibi)
+   — gerekeni yap, kendini tek satır değişikliğe sınırlama.
+6. `Thread.sleep` ekleme; bekleme gerekiyorsa WebDriverWait kullan.
+7. Bu depodaki AGENTS.md kurallarına uy.
+
+## Doğrulama
+Düzeltmen şu komutla doğrulanacak (HEAL_SCENARIO ortam değişkeni senaryo adını içerir):
 ```
-
-## Kurallar
-1. Yeni seçici AYNI türde olmalı: {{locator_type}}.
-2. Aday elementlerdeki GERÇEK nitelikleri kullan; nitelik uydurma.
-3. Kararlı nitelikleri tercih et: id > data-* > name > kısa class zinciri.
-4. Sayfada birden çok elemente uyabilecek genel seçici yazma.
-
-## Cevap biçimi
-SADECE şu JSON'u döndür, başka hiçbir şey yazma:
-{"selector_type": "{{locator_type}}", "selector": "<yeni seçici>", "reason": "<tek cümle gerekçe>"}
+{{scenario_command}}
+```

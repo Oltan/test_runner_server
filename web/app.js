@@ -330,12 +330,12 @@ async function refreshHeal(healId) {
     }
   } catch (e) { /* log alınamazsa sayfa yine çalışsın */ }
 
-  document.getElementById("heal-title").textContent =
-    `${heal.scenario} — Mod ${String(heal.mode || "").toUpperCase()}`;
+  document.getElementById("heal-title").textContent = heal.scenario;
   document.getElementById("heal-status").innerHTML = badge(heal.status);
   document.getElementById("heal-meta").innerHTML =
-    `sınıf: <b>${esc(heal.failure_class || "-")}</b>&nbsp; model:
-     <b>${esc(heal.model || "-")}</b>&nbsp; branch: <b>${esc(heal.branch || "-")}</b>`;
+    `sınıf: <b>${esc(heal.failure_class || "-")}</b>&nbsp; agent:
+     <b>${esc(heal.mode || "-")}</b>${heal.model ? `&nbsp; model:
+     <b>${esc(heal.model)}</b>` : ""}&nbsp; branch: <b>${esc(heal.branch || "-")}</b>`;
 
   document.getElementById("stages").innerHTML = (heal.stages || []).map((s) => `
     <tr>

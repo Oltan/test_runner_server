@@ -47,14 +47,11 @@ projects:
   #     command: "mvn -B test -Dcucumber.features=@target/rerun.txt"
   #     rerun_file: target/rerun.txt
   #   agent:                                  # Faz 2: LLM healing
-  #     llm:                                  # Mod A (locator) — sunucu bu
-  #       # endpoint'e doğrudan tek bir chat completion isteği atar (agent
-  #       # yok, sadece HTTP çağrısı):
-  #       base_url: "https://api.sirketai.com.tr/v1"
-  #       model: "glm-5.2-fp8"                # şirket endpoint'inizdeki model adı
-  #       api_key_env: "SIRKETAI_API_KEY"     # anahtar bu env değişkeninden okunur
-  #
-  #     # ---- Mod B: hangi CLI çağrılacak — bu KADAR basit ----
+  #     # Her başarısız senaryo (locator kırılması dahil) AYNI coding agent'a
+  #     # gider — agent repoyu kendisi tarar, hatayı anlar, düzeltmeyi kendisi
+  #     # yapar. Sunucu kendi başına regex/JSON/literal-patch ile uğraşmaz
+  #     # (dar kapsamlı olurdu: tek satır/tek eşleşme dışında çalışmazdı).
+  #     #
   #     # opencode ve Claude Code zaten kendi kurulumunuzda (opencode.json /
   #     # claude ayarları) https://api.sirketai.com.tr/v1'e bağlı — sunucu bunu
   #     # bilmez, bilmesi de gerekmez. Terminalde nasıl çalıştırıyorsanız

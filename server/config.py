@@ -32,24 +32,24 @@ class RetryConfig(BaseModel):
     rerun_file: str = "target/rerun.txt"
 
 
-class LLMConfig(BaseModel):
-    base_url: str            # OpenAI-uyumlu endpoint, ör: http://vllm:8000/v1
-    model: str
-    api_key_env: str | None = None  # anahtar bu ortam değişkeninden okunur
-
-
 class AgentConfig(BaseModel):
     """Faz 2 healing ayarları (proje bazında).
 
-    Mod B'de agent'ın endpoint/model bilgisiyle sunucu ilgilenmez — opencode
-    ve Claude Code zaten kendi kurulumlarında (opencode.json / claude
+    Her başarısız senaryo (locator kırılması dahil) aynı coding agent'a
+    (opencode/Claude Code) gider — agent repoya tam erişimle dosyayı bulur,
+    hatayı anlar, düzeltmeyi kendisi yapar. Sunucu kendi başına regex ile
+    seçici çıkarıp JSON bekleyip metin değiştirmez; bu hem dar kapsamlıydı
+    (tek satır/tek eşleşme dışında çalışmazdı) hem de modelin cevap
+    biçimine bağımlıydı. Sınıflandırma (locator/logic/...) sadece agent'a
+    hangi prompt şablonunun verileceğini seçmek için kullanılır.
+
+    Agent'ın endpoint/model bilgisiyle sunucu ilgilenmez — opencode ve
+    Claude Code zaten kendi kurulumlarında (opencode.json / claude
     ayarları, ANTHROPIC_BASE_URL vb.) sizin endpoint'inize (ör.
     https://api.sirketai.com.tr/v1) bağlıdır. Sunucu sadece o CLI'yı,
     terminalden çağırdığınızla birebir aynı şekilde çalıştırır.
     """
-    llm: LLMConfig | None = None          # Mod A: tek çağrılık locator düzeltme
-    # Mod B: hangi CLI çağrılacak — opencode | claude-code | custom
-    agent_cli: str = "opencode"
+    agent_cli: str = "opencode"           # opencode | claude-code | custom
     agent_command: str | None = None      # agent_cli: custom için tam komut
                                           # (verilirse agent_cli'den önceliklidir)
     agent_model: str | None = None        # opsiyonel model override (--model);

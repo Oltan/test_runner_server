@@ -38,7 +38,8 @@ Sizin bilgisayarınız (tarayıcı)
 │   │                   dosyasını tail eder → canlı % 	   │
 │   ├─ Retry          → FAIL senaryoları 1 kez tekrarlar   │
 │   │                   → geçen = flaky, kalan = gerçek    │
-│   ├─ Healing        → gerçek hatalar için LLM önerisi    │
+│   ├─ Healing        → hata anında görev metni hazırlar,  │
+│   │                   opencode/Claude Code'u çalıştırır  │
 │   │                   (izole git worktree'de, onaylı)    │
 │   └─ SQLite (data/) → koşum geçmişi, senaryolar, heal'ler│
 │                                                          │
@@ -46,7 +47,9 @@ Sizin bilgisayarınız (tarayıcı)
 │   /opt/projects/web-otomasyon   (Selenium+Cucumber)      │
 │   /opt/projects/javafx-app      (TestFX)                 │
 │                                                          │
-│  vLLM (aynı ya da başka sunucuda): OpenAI-uyumlu API     │
+│  opencode / Claude Code (VM'de kurulu CLI'lar) — kendi   │
+│  ayarlarıyla şirket LLM endpoint'ine (api.sirketai...)   │
+│  bağlanır; sunucu bu bağlantıyı bilmez/yönetmez          │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -290,8 +293,8 @@ Ardından elle duman testi (5 dk):
    + yüzde + otomatik retry + flaky rozeti (Aşama 0'daki gibi).
 2. Koşum sırasında **Durdur**'a basın → durum `stopped`, Görev
    Yöneticisi'nde python süreçleri kalmamalı.
-3. Healing: `create.ps1` + `mock_llm.py` ile 7.1'deki Adım 1'i uygulayın →
-   Mod A "proposed"a ulaşmalı, onayda branch fixture repoda kalmalı.
+3. Healing: `create.ps1` ile 7.1'deki fixture testini uygulayın → sahte
+   agent "proposed"a ulaşmalı, onayda branch fixture repoda kalmalı.
 
 ### 4.7 Windows ↔ Linux geçişi (aynı repoyu iki tarafta kullanmak)
 
@@ -461,58 +464,51 @@ powershell -ExecutionPolicy Bypass -File examples\heal-fixtures\create.ps1
 # (varsayılan hedef: %TEMP%\heal-fixtures; isterseniz dizin argümanı verin)
 ```
 
-**Adım 1 — vLLM'siz kuru test (mock LLM ile):**
+**Adım 1 — sahte agent ile kuru test (gerçek opencode/Claude Code kurulu
+olmasa da çalışır):**
 
-```bash
-# mock LLM'i başlatın (sabit bir locator düzeltmesi döndürür, port 8199):
-python3 examples/heal-fixtures/mock_llm.py &          # Linux/macOS
-# Windows: ayrı bir terminalde → python examples\heal-fixtures\mock_llm.py
-```
+Script'in bastığı yaml bloğunu `projects.yaml`'a ekleyin — ikisi de
+(`heal-a`, `heal-b`) `agent_command: "{python} fake_agent.py"` ile gelir;
+bu, gerçek CLI'nın davranışını taklit eden bir script (görev dosyasını
+okur, kodu kendisi düzeltir). Sunucuyu yeniden başlatın ve:
 
-Script'in bastığı yaml bloğunu `projects.yaml`'a ekleyin (mock için
-`base_url: "http://127.0.0.1:8199/v1"`), sunucuyu yeniden başlatın ve:
-
-1. **heal-a** projesini koşun → FAIL eder (kasıtlı).
+1. **heal-a** (locator kırılması) projesini koşun → FAIL eder (kasıtlı).
 2. Senaryo tablosunda **🩹 AI ile düzelt** → heal sayfası açılır.
-3. Aşamaların sırayla yeşillendiğini izleyin: worktree → locator çıkarımı →
-   kod eşleşmesi → DOM budama → LLM önerisi → patch → senaryo doğrulama →
-   diff + commit. Durum **proposed** olur, diff görünür.
+3. Aşamaların sırayla yeşillendiğini izleyin: worktree → görev dosyası →
+   agent koşumu → whitelist kontrolü → senaryo doğrulama → diff + commit.
+   **Canlı Çıktı** bölümünde sahte agent'ın çalıştığını görürsünüz. Durum
+   **proposed** olur, diff görünür.
 4. **Onayla** → `cd /opt/projects/heal-fixtures/heal-fixture-a && git branch`
    → `heal/xxxx` branch'ini görmelisiniz; ana dizindeki dosya DEĞİŞMEMİŞ olmalı.
+5. **heal-b** (assertion hatası) için aynısını tekrarlayın.
 
-**Adım 2 — Gerçek endpoint ile aynı test:**
+**Adım 2 — gerçek CLI'nızla aynı test:**
 
-Önce şirket endpoint'ini doğrulayın:
+Önce agent'ın sunucusuz, düz terminalde çalıştığını doğrulayın:
 
 ```bash
-curl https://api.sirketai.com.tr/v1/models \
-  -H "Authorization: Bearer $SIRKETAI_API_KEY"
-curl https://api.sirketai.com.tr/v1/chat/completions \
-  -H "Authorization: Bearer $SIRKETAI_API_KEY" -H "Content-Type: application/json" \
-  -d '{"model":"glm-5.2-fp8","messages":[{"role":"user","content":"merhaba"}]}'
+cd /opt/projects/heal-fixtures/heal-fixture-a
+opencode run "Bu repoda pages/ altında hangi sınıflar var?"
+# veya:
+claude -p "Bu repoda pages/ altında hangi sınıflar var?" --permission-mode acceptEdits
 ```
 
-Sonra fixture config'inde Mod A'nın `base_url`'ini `https://api.sirketai.com.tr/v1`,
-`model`'i gerçek model adına çevirin ve Adım 1'i tekrarlayın. Gerçek model de
-`//button[@id='submit-button-v2']` benzeri bir öneri üretmeli (fixture'daki
-DOM dump'ında doğru cevap var — model DOM'a bakmayı beceriyorsa bulur).
+Cevap doğru geliyorsa (CLI zaten şirket endpoint'inize bağlıysa), fixture
+config'lerindeki `agent_command: "{python} fake_agent.py"` satırını silip
+yerine `agent_cli: opencode` (veya `claude-code`) yazın, Adım 1'i tekrarlayın.
+Bu sefer heal sayfasının **Canlı Çıktı**'sında gerçek `opencode run "..."`
+çağrısını ve agent'ın gerçek kararını görürsünüz — locator'ı DOM dump'ına
+bakarak kendisi bulup düzeltmeli (`//button[@id='submit-button-v2']` benzeri).
 
-**Adım 3 — Mod B (opencode/Claude Code) testi:** `heal-b` fixture'ı, gerçek
-CLI'nın davranışını taklit eden bir sahte agent'la gelir (görev dosyasını
-okuyup kodu düzelten script — `agent_cli` henüz ayarlı değildir). Önce bunu
-koşup akışı görün (worktree → agent koşumu → whitelist → doğrulama →
-proposed); sonra fixture config'ine `agent_cli: opencode` (veya
-`claude-code`) ekleyip `env.HEAL_AGENT_BIN` satırını kaldırarak gerçek
-CLI'nızla tekrarlayın (bkz. 7.3 — CLI zaten kendi ayarlarıyla
-`api.sirketai.com.tr`'ye bağlı olmalı, ekstra config gerekmez).
-
-> **KONTROL NOKTASI 4a:** Fixture'da hem Mod A hem Mod B "proposed"a
+> **KONTROL NOKTASI 4a:** Fixture'da hem heal-a hem heal-b "proposed"a
 > ulaşıyor ve onay/red branch davranışı doğruysa motor tarafı hazır.
 
 ### 7.2 Test projenize artefakt hook'u ekleyin
 
 Healing'in "gözleri" budur: hata anında DOM + screenshot + shared state
-yakalanmazsa Mod A çalışamaz ("Hata artefaktı bulunamadı" der).
+yakalanmazsa, locator sınıfı hatalarda agent'a verilecek bağlam eksik kalır
+("Hata artefaktı bulunamadı" benzeri durum — agent yine de repoyu tarayıp
+düzeltmeyi deneyebilir ama DOM dump'ı olmadan isabet oranı düşer).
 
 1. `examples/java-templates/FailureArtifactHook.java` dosyasını test
    projenizin `hooks/` paketine kopyalayın; başındaki `package` satırını
@@ -546,8 +542,8 @@ public class TestContext {
    `target/failure-artifacts/<senaryo>/` altında `tab_0.html`, `screenshot.png`,
    `meta.json`, `context.json` oluşmalı. **Bunu görmeden ilerlemeyin.**
 6. `examples/java-templates/AGENTS.md`'yi test projenizin köküne kopyalayıp
-   içindeki dizin adlarını/komutları kendi yapınıza göre düzeltin
-   (Mod B'de agent bunu okur).
+   içindeki dizin adlarını/komutları kendi yapınıza göre düzeltin (agent
+   çalışırken bunu okur — hem locator hem diğer düzeltmelerde geçerli).
 
 ### 7.3 Gerçek projede agent yapılandırması
 
@@ -576,13 +572,7 @@ Projenizin `projects.yaml` girdisine ekleyin — bu kadar:
 
 ```yaml
     agent:
-      llm:                                   # Mod A — locator düzeltme
-        # Bu, agent DEĞİL: sunucunun tek atımlık HTTP çağrısı attığı endpoint.
-        base_url: "https://api.sirketai.com.tr/v1"
-        model: "glm-5.2-fp8"                 # şirket endpoint'inizdeki model adı
-        api_key_env: "SIRKETAI_API_KEY"      # anahtar bu env değişkeninden okunur
-
-      agent_cli: opencode                    # Mod B — opencode | claude-code | custom
+      agent_cli: opencode                    # opencode | claude-code | custom
       # agent_model: "glm-5.2-fp8"           # opsiyonel: --model ile zorlar;
                                              # vermezseniz CLI'nın kendi
                                              # varsayılan modelini kullanır
@@ -592,6 +582,14 @@ Projenizin `projects.yaml` girdisine ekleyin — bu kadar:
         - src/test/java/pages/
         - src/test/java/stepdefinitions/
 ```
+
+Bu kadar — locator kırılmaları da, assertion/mantık hataları da AYNI
+`agent_cli` üzerinden gider. Sunucu kendi başına regex/JSON/literal-patch
+uğraşmaz (bu dar kapsamlı olurdu: tek satır/tek eşleşme dışında çalışmazdı,
+model farklı biçimde cevap verirse kırılırdı). Hata sınıfına göre değişen
+tek şey, agent'a verilen görev metnindeki bağlamdır: locator kırılmalarında
+budanmış DOM dump'ı + kırılan seçici eklenir, diğerlerinde hata + artefakt
+özeti eklenir — ikisinde de agent kodu kendisi bulup düzeltir.
 
 `agent_cli` tam olarak ne çalıştırır (argv olarak — aşağıdaki gösterim
 sırasıyla birebir):
@@ -623,7 +621,7 @@ yeterli — başka hiçbir ayar gerekmez.
 Diğer ayrıntılar:
 
 - **Proje git deposu olmalı** ve `target/` `.gitignore`'da olmalı (yoksa
-  Mod B'nin whitelist kontrolü build çıktılarını ihlal sanır).
+  whitelist kontrolü build çıktılarını ihlal sanır).
 - **Binary PATH'te değilse:** `agent.env` ile tam yolu verin, örn.
   `env: { HEAL_AGENT_BIN: "C:/Users/.../opencode.cmd" }` (Windows'ta sık
   gerekir). Ek CLI argümanı eklemek isterseniz `HEAL_AGENT_ARGS`; Claude
@@ -636,18 +634,24 @@ Diğer ayrıntılar:
 
 1. Koşum FAIL eder → otomatik retry → yine kalan senaryolar gerçek hatadır.
 2. Koşum sayfasında senaryonun yanındaki **🩹 AI ile düzelt**'e basın.
-   Hata sınıfına göre otomatik Mod A/B seçilir (infra/unknown hatalar
-   reddedilir — onlar ortam sorunudur, elle bakın).
-3. Heal sayfasında aşamaları izleyin. Süre: Mod A genelde 1-2 dk
-   (senaryo koşumu dahil), Mod B agent'a bağlı.
+   Hata sınıfı (locator/logic/unknown) sadece agent'a hangi görev
+   şablonunun verileceğini belirler — hepsi aynı `agent_cli` üzerinden
+   çalışır. Yalnızca **infra** sınıfı (ör. "tarayıcı başlatılamadı")
+   otomatik reddedilir: bu bir ortam sorunudur, LLM ile çözülmez, elle
+   bakın (zorlamak isterseniz API'de `mode: "force"` — arayüzde yok,
+   önerilmez).
+3. Heal sayfasında aşamaları izleyin: worktree → görev dosyası → agent
+   koşumu → whitelist kontrolü → (derleme) → senaryo doğrulama → diff.
+   **Canlı Çıktı** bölümünde agent'ın gerçek çıktısını görürsünüz. Süre
+   agent'a ve düzeltmenin büyüklüğüne bağlı.
 4. **proposed** olunca diff'i okuyun:
    - Mantıklıysa **Onayla** → branch repoda kalır. Sonra kendi
      bilgisayarınızda: `git fetch && git log heal/<id> && git diff main...heal/<id>`
      → inceleyin, merge/PR edin. Merge sonrası VM'deki proje dizininde
      `git pull` yapmayı unutmayın.
    - Beğenmediyseniz **Reddet** → branch ve worktree silinir, iz kalmaz.
-5. `needs_human` durumu = motor bilerek durdu (ör. locator kodda birden çok
-   yerde geçiyor). Aşama detayındaki gerekçeyi okuyup elle düzeltin.
+5. `needs_human` durumu = motor bilerek durdu (ör. hata sınıfı "infra" ve
+   `mode: "force"` verilmedi). Aşama detayındaki gerekçeyi okuyup elle bakın.
 
 > **KONTROL NOKTASI 4b:** Gerçek projenizde bilerek bir locator bozup
 > (`git commit` etmeden değil — commit'leyin, çünkü worktree HEAD'den açılır!)
@@ -747,12 +751,10 @@ olaylar: `{"type":"backlog"|"log"|"progress"|"finished"}`.
 | "Bu projede agent yapılandırması yok" | `projects.yaml`'a `agent:` bloğu ekleyip servisi yeniden başlatın |
 | "Proje bir git deposu değil" | Test projesinin kendi `.git`'i yok → o proje dizininde `cd <path> && git init && git add -A && git commit -m init` |
 | "başka bir reponun alt klasörü olarak görünüyor" | Test projenizi test_runner_server'ın (veya başka bir reponun) klasör ağacının İÇİNE koymuşsunuz ve kendi `.git`'i yok — git üst dizine bakıp yanlış reponun altında sanıyor. Test projesini test_runner_server'ın dışına, ayrı bir klasöre taşıyın (veya kendi `.git`'ini oluşturun) |
-| "Hata artefaktı bulunamadı" | `FailureArtifactHook` projede değil/çalışmıyor → 7.2'deki lokal doğrulamayı yapın; hook'un `@After` order'ı driver.quit'ten önce mi? |
-| "Hata mesajından locator çıkarılamadı" | Hata Selenium'un standart biçiminde değil → heal'i `mode:"b"` ile agent'a zorlayın |
-| "Locator kod içinde bulunamadı" | Locator kodda string birleştirmeyle üretiliyor olabilir (dinamik XPath) → bu sınıf otomatik patch'lenemez, elle düzeltin |
-| `needs_human` | Kasıtlı durma (çoklu eşleşme, tür değişikliği önerisi) → aşama detayındaki gerekçeyi okuyun |
-| LLM çağrısı başarısız | `curl <base_url>/models` ile endpoint'i doğrulayın; sunucudan vLLM'e ağ erişimi var mı? |
-| Mod B: "whitelist DIŞINA dokundu" | Agent taşkınlık yaptı (koruma çalıştı) → `edit_whitelist`'i gözden geçirin ya da AGENTS.md kurallarını netleştirin; `target/` gitignore'da mı? |
+| "Hata artefaktı bulunamadı" / DOM özeti boş geliyor | `FailureArtifactHook` projede değil/çalışmıyor → 7.2'deki lokal doğrulamayı yapın; hook'un `@After` order'ı driver.quit'ten önce mi? Bu durumda heal yine de çalışır ama agent DOM bağlamı olmadan repoyu kendisi taramak zorunda kalır — isabet oranı düşer. |
+| Hata sınıfı "infra" olarak reddedildi | Bu genelde gerçekten ortam sorunudur (tarayıcı/bağlantı) — elle bakın. Yine de denemek isterseniz API'de `mode: "force"` gönderin (arayüzde düğme yok, `curl` ile). |
+| `needs_human` | Kasıtlı durma — genelde infra sınıfı + force verilmemiş. Aşama detayındaki gerekçeyi okuyun. |
+| "whitelist DIŞINA dokundu" | Agent taşkınlık yaptı (koruma çalıştı) → `edit_whitelist`'i gözden geçirin ya da AGENTS.md kurallarını netleştirin; `target/` gitignore'da mı? |
 | **Windows:** agent/senaryo komutu `$HEAL_...` değişkenini çözmüyor | `$VAR` bash sözdizimidir, cmd anlamaz → komutlarda `{scenario}` / `{prompt_file}` / `{model}` yer tutucularını kullanın (7.3) veya komutu `bash -lc '...'` ile sarın (Git Bash) |
 | Yarıda kalan heal / kalıntı worktree | Sunucu heal ortasında yeniden başladıysa: proje dizininde `git worktree list` → `git worktree prune` → kalan `heal/*` branch'lerini `git branch -D` ile silin |
 
@@ -774,18 +776,27 @@ data/
 
 ## 12. Model ve agent seçimi
 
-Mevcut filonuzla önerilen dağılım:
+Tek bir agent akışı var — locator kırılmaları da assertion/mantık
+hataları da AYNI `agent_cli` üzerinden geçer (sadece görev metnindeki
+bağlam farklıdır). Yani "basit düzeltmeye hızlı/ucuz model, karmaşığa
+güçlü model" ayrımına gerek yok: `agent_model`'e (ya da hiç vermeyip
+opencode.json/Claude Code ayarınızdaki varsayılana) tek bir model seçin —
+hem küçük locator swap'larında hem büyük mantık düzeltmelerinde aynı
+model çalışacak.
 
-| Rol | Model | Gerekçe |
-|---|---|---|
-| Mod A (locator, tek çağrı) | `qwen3.6-35b-a3b` | Görev dar/şablonlu; en hızlı model. En sık çalışan yol budur. |
-| Mod B (agent) | `glm-5.2-fp8` | Agentic tarafı güçlü; 128k context yeterli çünkü pipeline görevi ~20-50k token'da paketler |
-| Mod B eskalasyon + Faz 3 | `qwen3.5-397b-a17b` | İnatçı hatalar ve 256k context gerektiren test üretimi |
+Mevcut filonuzdan öneri: **GLM-5.2-FP8** ya da **Qwen3.5-397B-A17B**
+(agentic/kod düzenleme tarafı güçlü; pipeline zaten bağlamı budayıp
+(DOM özeti, artefakt özeti) ~20-50k token'da tuttuğu için 128k/256k
+context'in tamamı gerekmez, bolca pay bırakır). **Qwen3.6-35B-A3B** daha
+hızlı/ucuz bir alternatiftir — basit locator düzeltmelerinde yeterli
+olabilir, karmaşık mantık hatalarında güçlü modele göre daha sık
+başarısız olabilir. İkisini de `heal-b` fixture'ıyla deneyip
+karşılaştırın; kazananı `agent_model`'e yazın.
 
 Agent CLI seçimi (opencode / Claude Code): `agent_cli` tek alan olduğundan
 ikisini de `heal-b` fixture'ıyla A/B test edip kazananı yazın (bkz. 7.1).
-Hangisini seçerseniz seçin diff whitelist + insan onayı korumaları aynıdır —
-CLI değişse de motor davranışı değişmez.
+Hangisini seçerseniz seçin diff whitelist + insan onayı korumaları aynıdır
+— CLI değişse de motor davranışı değişmez.
 
 ---
 

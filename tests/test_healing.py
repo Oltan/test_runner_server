@@ -1,14 +1,12 @@
 import subprocess
-from pathlib import Path
 
 import pytest
 
 from server.healing import HealError
 from server.healing.classify import classify
 from server.healing.domprune import prune_dom
-from server.healing.llm import extract_json_block
 from server.healing.locator import extract_locator, find_occurrences
-from server.healing.patch import apply_single_literal_patch, whitelist_violations
+from server.healing.patch import whitelist_violations
 
 SELENIUM_JSON_ERROR = (
     "org.openqa.selenium.NoSuchElementException: Unable to locate element: "
@@ -36,7 +34,7 @@ def test_classify_logic_infra_unknown():
     assert classify(None) == "unknown"
 
 
-# --- locator çıkarımı ------------------------------------------------------------
+# --- locator çıkarımı (agent'a verilecek prompt'u zenginleştirmek için) --------------
 
 def test_extract_locator_selenium_json():
     assert extract_locator(SELENIUM_JSON_ERROR) == (
@@ -52,7 +50,7 @@ def test_extract_locator_none():
     assert extract_locator("java.lang.AssertionError: beklenen 5") is None
 
 
-# --- kod arama + patch ------------------------------------------------------------
+# --- kod içinde arama (best-effort ipucu — bulunamazsa agent kendisi arar) -----------
 
 @pytest.fixture
 def fake_repo(tmp_path):
@@ -72,26 +70,9 @@ def test_find_occurrences(fake_repo):
     assert hits[0][1] == 1
 
 
-def test_patch_single_match(fake_repo):
-    path = apply_single_literal_patch(
-        fake_repo, ["pages/"],
-        "//button[@id='submit-btn']", "//button[@id='submit-button-v2']")
-    text = path.read_text(encoding="utf-8")
-    assert "submit-button-v2" in text and "submit-btn'" not in text
-
-
-def test_patch_rejects_multiple_matches(fake_repo):
-    (fake_repo / "pages" / "OtherPage.java").write_text(
-        'By b = By.xpath("//button[@id=\'submit-btn\']");',
-        encoding="utf-8")
-    with pytest.raises(HealError, match="insan onayı"):
-        apply_single_literal_patch(fake_repo, ["pages/"],
-                                   "//button[@id='submit-btn']", "yeni")
-
-
-def test_patch_rejects_not_found(fake_repo):
-    with pytest.raises(HealError, match="bulunamadı"):
-        apply_single_literal_patch(fake_repo, ["pages/"], "yok-boyle", "yeni")
+def test_find_occurrences_empty_when_not_found(fake_repo):
+    # Bulunamazsa boş liste döner — hata fırlatmaz (agent kendisi arayabilir).
+    assert find_occurrences(fake_repo, ["pages/"], "yok-boyle-bir-sey") == []
 
 
 # --- DOM budama --------------------------------------------------------------------
@@ -136,20 +117,6 @@ def test_whitelist_violation(git_worktree):
     (git_worktree / "pom.xml").write_text("<project/>")
     violations = whitelist_violations(git_worktree, ["src/test/java/"])
     assert violations == ["pom.xml"]
-
-
-# --- LLM cevap ayrıştırma -------------------------------------------------------------
-
-def test_extract_json_block_with_fences():
-    text = ('Tabii, işte cevap:\n```json\n{"selector_type": "xpath", '
-            '"selector": "//button[@id=\'x\']", "reason": "id değişti"}\n```')
-    parsed = extract_json_block(text)
-    assert parsed["selector"] == "//button[@id='x']"
-
-
-def test_extract_json_block_invalid():
-    with pytest.raises(HealError):
-        extract_json_block("hiç json yok burada")
 
 
 # --- komut yer tutucuları (platform bağımsızlık) ------------------------------------

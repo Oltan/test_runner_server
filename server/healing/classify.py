@@ -1,9 +1,13 @@
 """Hata mesajından deterministik hata sınıfı çıkarımı.
 
-locator → Mod A (tek çağrılık locator düzeltme)
-logic   → Mod B (coding agent)
-infra   → LLM'e gitmez, insana işaretlenir
-unknown → otomatik yönlendirilmez; kullanıcı isterse Mod B'ye zorlayabilir
+Sınıflandırma, agent'a (opencode/Claude Code) hangi görev şablonunun
+verileceğini seçer — hepsi aynı agent_cli üzerinden çalışır:
+
+locator → agent'a DOM özeti + kırılan seçici içeren görev verilir
+logic   → agent'a hata + artefakt özeti içeren görev verilir
+unknown → logic ile aynı şablon (agent genel amaçlı, sınıf belirsiz olsa da dener)
+infra   → agent'a gitmez, insana işaretlenir (ortam sorunu, LLM ile çözülmez;
+          `mode="force"` ile zorlanabilir)
 """
 from __future__ import annotations
 

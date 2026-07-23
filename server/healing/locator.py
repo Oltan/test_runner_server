@@ -1,4 +1,9 @@
-"""Selenium hata mesajından kırılan locator'ı çıkarma ve kodda bulma."""
+"""Selenium hata mesajından kırılan locator'ı çıkarma ve kodda arama.
+
+Buradaki bulgular agent'a (opencode/Claude Code) verilecek prompt'u
+zenginleştirmek için kullanılır — best-effort bir ipucudur, agent'ın
+gerçek düzenlemeyi yapmasına engel/şart değildir. Bulunamazsa agent
+repoyu kendisi arar."""
 from __future__ import annotations
 
 import re
@@ -42,9 +47,9 @@ def find_occurrences(root: Path, subdirs: list[str],
                      needle: str) -> list[tuple[Path, int]]:
     """Whitelist dizinleri altındaki metin dosyalarında `needle` ara.
 
-    [(dosya, eşleşme sayısı), ...] döndürür — deterministik patch yalnızca
-    toplamda TEK eşleşme varsa uygulanır.
-    """
+    [(dosya, eşleşme sayısı), ...] döndürür — agent'ın prompt'una "muhtemelen
+    şu dosyaya bakın" ipucu eklemek için; bulunamazsa (boş liste) sorun
+    değil, agent repoyu kendisi tarar."""
     hits: list[tuple[Path, int]] = []
     for sub in subdirs:
         base = root / sub

@@ -1,7 +1,9 @@
 # Görev: Deterministik test hatasını düzelt
 
 Aşağıdaki Cucumber senaryosu üst üste iki koşumda da FAIL etti (flaky değil,
-gerçek hata). Kök nedeni bul ve düzelt.
+gerçek hata — assertion, mantık hatası ya da başka bir istisna olabilir).
+Kök nedeni bul ve düzelt. Repoya tam erişimin var; gerekirse birden fazla
+dosyayı düzenle.
 
 ## Başarısız senaryo
 Feature: {{feature}}

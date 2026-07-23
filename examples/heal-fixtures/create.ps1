@@ -1,6 +1,7 @@
 # create.sh'ın Windows PowerShell karşılığı.
 # Healing'i gerçek projenize dokunmadan test etmek için iki sahte "Java"
-# projesi (git repo) oluşturur.
+# projesi (git repo) oluşturur. İkisi de coding agent (opencode/Claude Code)
+# üzerinden düzeltilir — sahte agent'lar gerçek CLI'nızı taklit eder.
 #
 # Kullanım:  powershell -ExecutionPolicy Bypass -File examples\heal-fixtures\create.ps1 [hedef-dizin]
 #            (varsayılan hedef: $env:TEMP\heal-fixtures)
@@ -10,7 +11,7 @@ $ErrorActionPreference = "Stop"
 New-Item -ItemType Directory -Force -Path $Dest | Out-Null
 $Dest = (Resolve-Path $Dest).Path
 
-# ---------- Fixture A: locator kırılması (Mod A) ----------
+# ---------- Fixture A: locator kırılması ----------
 $A = Join-Path $Dest "heal-fixture-a"
 if (Test-Path $A) { Remove-Item -Recurse -Force $A }
 New-Item -ItemType Directory -Force -Path "$A\pages" | Out-Null
@@ -62,11 +63,30 @@ print("SONUC:", "PASSED" if ok else "FAILED", flush=True)
 sys.exit(0 if ok else 1)
 '@ | Set-Content -Encoding UTF8 "check.py"
 
+@'
+#!/usr/bin/env python3
+"""opencode/Claude Code'u taklit eden sahte agent: gorev dosyasini okur,
+kodu kendisi duzeltir. Gercek agent'inizi baglamadan once akisi bununla
+dogrulayin (bkz. KILAVUZ.md 7.1)."""
+import os
+from pathlib import Path
+
+task = Path(os.environ["HEAL_PROMPT_FILE"]).read_text(encoding="utf-8")
+assert "siparisi gonderir" in task or "Siparis" in task, \
+    "gorev dosyasinda senaryo yok"
+
+path = Path("pages/OrderPage.java")
+path.write_text(path.read_text(encoding="utf-8")
+                .replace("submit-btn", "submit-button-v2"),
+                encoding="utf-8")
+print("fake agent: locator submit-btn -> submit-button-v2 duzeltildi")
+'@ | Set-Content -Encoding UTF8 "fake_agent.py"
+
 "target/" | Set-Content ".gitignore"
 git add -A
 git -c user.name=fixture -c user.email=f@local commit -qm "heal fixture a"
 
-# ---------- Fixture B: assertion hatası (Mod B) ----------
+# ---------- Fixture B: assertion hatası ----------
 $B = Join-Path $Dest "heal-fixture-b"
 if (Test-Path $B) { Remove-Item -Recurse -Force $B }
 New-Item -ItemType Directory -Force -Path "$B\steps" | Out-Null
@@ -105,7 +125,9 @@ sys.exit(0 if ok else 1)
 
 @'
 #!/usr/bin/env python3
-"""opencode'u taklit eden sahte agent: gorev dosyasini okur, kodu duzeltir."""
+"""opencode/Claude Code'u taklit eden sahte agent: gorev dosyasini okur,
+kodu kendisi duzeltir. Gercek agent'inizi baglamadan once akisi bununla
+dogrulayin (bkz. KILAVUZ.md 7.1)."""
 import os
 from pathlib import Path
 
@@ -130,34 +152,32 @@ Fixture'lar hazir: $Dest
 
 ================================================================
 projects.yaml'a asagidaki blogu ekleyin, sonra sunucuyu yeniden
-baslatin. Mock LLM icin once ayri bir terminalde calistirin:
-  python examples\heal-fixtures\mock_llm.py
-Gercek vLLM'e gecerken base_url ve model'i degistirmeniz yeterli.
+baslatin. Ikisi de sahte "agent" ile calisir (gercek opencode/claude
+kurulu olmasa da akisi uctan uca gorursunuz). Gercek CLI'niza gecerken
+sadece agent_command satirini kaldirip agent_cli: opencode (veya
+claude-code) yazmaniz yeterli.
 ================================================================
 
   - id: heal-a
-    name: "Heal Testi A (locator / Mod A)"
+    name: "Heal Testi A (locator kirilmasi)"
     path: $DestYaml/heal-fixture-a
     command: "{python} check.py"
     results:
       cucumber_json: target/cucumber-report.json
     agent:
-      llm:
-        base_url: "http://127.0.0.1:8199/v1"   # mock; vLLM'de degistirin
-        model: "mock-model"                     # vLLM'de: qwen3.6-35b-a3b
+      agent_command: "{python} fake_agent.py"    # sonra kaldırıp: agent_cli: opencode
       scenario_command: "{python} check.py"
       edit_whitelist:
         - pages/
 
   - id: heal-b
-    name: "Heal Testi B (assertion / Mod B)"
+    name: "Heal Testi B (assertion hatasi)"
     path: $DestYaml/heal-fixture-b
     command: "{python} check.py"
     results:
       cucumber_json: target/cucumber-report.json
     agent:
-      agent_command: "{python} fake_agent.py"     # sonra kaldırıp: agent_cli: opencode
-      agent_model: "mock-agent"                 # sonra: glm-5.2-fp8
+      agent_command: "{python} fake_agent.py"    # sonra kaldırıp: agent_cli: opencode
       scenario_command: "{python} check.py"
       edit_whitelist:
         - steps/
