@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shlex
 import subprocess
 import sys
 import threading
@@ -25,7 +26,7 @@ from uuid import uuid4
 from . import HealError
 from ..config import ProjectConfig, ServerConfig
 from ..db import Database
-from .agents import build_agent_command
+from .agents import build_agent_argv
 from .classify import classify
 from .domprune import prune_dom
 from .llm import chat_completion, extract_json_block
@@ -43,6 +44,12 @@ class HealBusy(Exception):
 
 def _utcnow() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _quote_for_display(arg: str) -> str:
+    """argv elemanını okunabilir log satırı için tırnaklar (yeniden
+    çalıştırmak için değil, sadece görüntü amaçlıdır)."""
+    return shlex.quote(arg) if arg else '""'
 
 
 def _fill(template: str, values: dict[str, str]) -> str:
@@ -78,12 +85,22 @@ class HealEngine:
                   errors="replace") as f:
             f.write(text)
 
-    def _stream_cmd(self, heal_id: str, command: str, cwd: Path,
+    def _stream_cmd(self, heal_id: str, command: str | list[str], cwd: Path,
                     env: dict, timeout: int) -> tuple[int, str]:
         """Komutu çalıştırır, çıktısını satır satır heal log dosyasına akıtır
-        (arayüz bu dosyayı canlı gösterir). (exit_code, kuyruk) döner."""
-        self._log(heal_id, f"\n$ {command}\n")
-        proc = subprocess.Popen(command, shell=True, cwd=cwd, env=env,
+        (arayüz bu dosyayı canlı gösterir). (exit_code, kuyruk) döner.
+
+        `command` bir liste ise (agent_cli: opencode/claude-code) argv
+        olarak, shell'e HİÇ girmeden çalıştırılır — tırnak/kaçış karakteri
+        derdi olmaz, prompt içeriği ne olursa olsun sorunsuz geçer. Loga
+        yazılan satır da terminalde elle yazacağınız komutla birebir aynıdır.
+        Düz metin ise (agent_cli: custom, mvn/derleme komutları) shell
+        üzerinden çalışır (pipe/redirect/env genişletme gerekebilir)."""
+        display = (" ".join(_quote_for_display(c) for c in command)
+                   if isinstance(command, list) else command)
+        self._log(heal_id, f"\n$ {display}\n")
+        proc = subprocess.Popen(command, shell=isinstance(command, str),
+                                cwd=cwd, env=env,
                                 stdout=subprocess.PIPE,
                                 stderr=subprocess.STDOUT,
                                 text=True, errors="replace")
@@ -105,7 +122,7 @@ class HealEngine:
             timer.cancel()
         if timed_out.is_set():
             raise HealError(f"Komut zaman aşımına uğradı ({timeout}s): "
-                            f"{command}")
+                            f"{display}")
         return returncode, "".join(tail)[-1200:]
 
     # --- başlatma -------------------------------------------------------------
@@ -371,18 +388,26 @@ class HealEngine:
         def run_agent() -> str:
             env = {
                 **os.environ, **project.env, **agent.env,
-                "HEAL_PROMPT_FILE": str(prompt_file),
-                "HEAL_MODEL": agent.agent_model or "",
                 "HEAL_SCENARIO": scenario_row["scenario"],
             }
-            # agent_command verilmişse o kazanır; yoksa agent_cli'ye göre
-            # hazır başlatıcı (agent/launchers/) kullanılır.
-            template = agent.agent_command or build_agent_command(agent.agent_cli)
-            command = render_command(template,
-                                     prompt_file=str(prompt_file),
-                                     model=agent.agent_model or "",
-                                     scenario=scenario_row["scenario"],
-                                     python=f'"{sys.executable}"')
+            if agent.agent_command:
+                # Tam kontrol: agent_command bir shell komut şablonudur.
+                command = render_command(
+                    agent.agent_command, prompt_file=str(prompt_file),
+                    model=agent.agent_model or "",
+                    scenario=scenario_row["scenario"],
+                    python=f'"{sys.executable}"')
+            else:
+                # Hazır CLI: gerçek argv — terminalde elle yazacağınız
+                # komutla birebir aynı; shell'e hiç girmez (tırnak/kaçış
+                # karakteri derdi yok), log'da da bu haliyle görünür.
+                command = build_agent_argv(
+                    agent.agent_cli,
+                    prompt_file.read_text(encoding="utf-8"),
+                    model=agent.agent_model or "",
+                    binary=agent.env.get("HEAL_AGENT_BIN", ""),
+                    extra_args=agent.env.get("HEAL_AGENT_ARGS", "").split(),
+                    allowed_tools=agent.env.get("HEAL_ALLOWED_TOOLS", ""))
             returncode, tail = self._stream_cmd(
                 heal_id, command, worktree, env, agent.command_timeout_s)
             if returncode != 0:

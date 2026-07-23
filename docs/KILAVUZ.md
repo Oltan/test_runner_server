@@ -552,12 +552,15 @@ public class TestContext {
 ### 7.3 Gerçek projede agent yapılandırması
 
 > **"opencode/Claude Code nerede çağrılıyor?"** Sunucu, o CLI'yı **aynen
-> siz terminalden başlatmışsınız gibi** bir subprocess olarak çalıştırır —
-> gömülü bir entegrasyon yok, aradan geçen bir kütüphane yok. Kod:
-> `server/healing/engine.py` → `_mod_b` → `agent/launchers/opencode.py`
-> (ya da `claude_code.py`). Sunucunun tek işi: worktree'ye görev dosyasını
-> (`HEAL_TASK.md`) yazmak, cwd'yi o worktree yapmak ve komutu çalıştırmak;
-> agent bitince diff whitelist + doğrulama zinciri devreye girer.
+> siz terminalden başlatmışsınız gibi** çalıştırır — gerçek argv listesi
+> olarak (`server/healing/agents.py` → `build_agent_argv`), shell'e hiç
+> girmeden. Yani ortada bir Python sarmalayıcı/aracı kütüphane yok; canlı
+> heal logunda gördüğünüz `$ opencode run --model ... "<görev>"` satırı
+> **fiilen çalışan komutun kendisidir** — kopyalayıp terminalinize
+> yapıştırsanız birebir aynı işi yapar. Sunucunun tek işi: worktree'ye
+> görev metnini yazmak (`HEAL_TASK.md`, kayıt amaçlı), cwd'yi o worktree
+> yapmak, komutu argv olarak çalıştırmak; agent bitince diff whitelist +
+> doğrulama zinciri devreye girer.
 >
 > **Endpoint/model bilgisiyle sunucu hiç ilgilenmez.** opencode ve Claude
 > Code zaten kendi kurulumunuzda şirketinizin endpoint'ine
@@ -590,13 +593,19 @@ Projenizin `projects.yaml` girdisine ekleyin — bu kadar:
         - src/test/java/stepdefinitions/
 ```
 
-`agent_cli` tam olarak ne çalıştırır:
+`agent_cli` tam olarak ne çalıştırır (argv olarak — aşağıdaki gösterim
+sırasıyla birebir):
 
 | `agent_cli` | Sunucunun çalıştırdığı komut | Endpoint/model nereden geliyor |
 |---|---|---|
-| `opencode` | `opencode run "<görev>"` (`agent_model` verildiyse `--model <değer>` ile) | test reponuzdaki `opencode.json` — sizin kurduğunuz |
-| `claude-code` | `claude -p "<görev>" --permission-mode acceptEdits --allowedTools ...` (`agent_model` verildiyse `--model <değer>` ile) | Claude Code'un kendi ayarları/env değişkenleri — sizin kurduğunuz |
-| `custom` | `agent_command` satırınızı aynen | tam kontrol sizde |
+| `opencode` | `opencode run [--model <agent_model>] "<görev>"` | test reponuzdaki `opencode.json` — sizin kurduğunuz |
+| `claude-code` | `claude -p "<görev>" --permission-mode acceptEdits --allowedTools ... [--model <agent_model>]` | Claude Code'un kendi ayarları/env değişkenleri — sizin kurduğunuz |
+| `custom` | `agent_command` satırınızı aynen (shell string, yer tutucularla) | tam kontrol sizde |
+
+`agent_model` boşsa `--model` bayrağı **hiç eklenmez** — CLI kendi
+varsayılan modelini kullanır. `<görev>` argümanı, hata anındaki senaryo +
+artefakt özetini içeren tam metindir (uzun olabilir); argv olarak
+geçirildiği için shell tırnak/kaçış karakteri sorunu yaşamaz.
 
 **Önce sunucusuz doğrulama** (kurulumunuzun gerçekten çalıştığından emin olun):
 
